@@ -52,18 +52,26 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
-      # ۵. حذف سرور خاموش شده mint.splunk و فعال‌سازی مخزن JitPack برای PRDownloader
-      - name: Fix Repositories & PRDownloader
+      # ۵. اتصال مستقیم به مخزن JitPack و معرفی سراسری
+      - name: Redirect Dead Repositories to JitPack
         run: |
-          echo "Fixing repositories in project files..."
-          # حذف سرور خاموش شده mint.splunk.com
-          find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i '/mint\.splunk/d' {} +
+          echo "Redirecting obsolete mint.splunk.com to https://jitpack.io/..."
+          find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|https://mint.splunk.com/gradle/|https://jitpack.io/|g' {} +
+          find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|http://mint.splunk.com/gradle/|https://jitpack.io/|g' {} +
           
-          # اضافه کردن مخزن زنده JitPack
-          find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|mavenCentral()|mavenCentral()\n        maven { url "https://jitpack.io" }|g' {} +
-          echo "Repositories fixed successfully!"
+          mkdir -p ~/.gradle
+          cat << 'EOF' > ~/.gradle/init.gradle
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+                  maven { url 'https://jitpack.io' }
+              }
+          }
+          EOF
+          echo "JitPack globally configured!"
 
-      # ۶. نصب دقیق نسخه NDK 26.2.11394342 مورد نیاز سورس
+      # ۶. نصب دقیق نسخه NDK 26.2.11394342
       - name: Setup Android SDK & NDK 26.2.11394342
         run: |
           echo "Accepting Android SDK licenses..."
@@ -84,15 +92,25 @@ jobs:
           
           echo "sdk.dir=$ANDROID_SDK_ROOT" > "$PROJECT_DIR/local.properties"
 
-      # ۷. صدور مجوز اجرایی به gradlew
+      # ۷. صدور مجوز اجرایی
       - name: Make gradlew Executable
         run: chmod +x "$PROJECT_DIR/gradlew"
 
-      # ۸. ساخت APK با گریدل
+      # ۸. ساخت APK و نمایش دقیق خطا در پایین صفحه
       - name: Build Trp APK with Gradle
         run: |
           cd "$PROJECT_DIR"
-          ./gradlew assembleDebug --no-daemon
+          
+          set -o pipefail
+          ./gradlew assembleDebug --no-daemon 2>&1 | tee build.log || BUILD_STATUS=$?
+          
+          if [ -n "$BUILD_STATUS" ] && [ "$BUILD_STATUS" -ne 0 ]; then
+            echo ""
+            echo "====================== [EXACT ERROR DETAILS] ======================"
+            grep -B 2 -A 6 "Could not resolve" build.log || grep -B 1 -A 10 "What went wrong:" build.log || tail -n 25 build.log
+            echo "==================================================================="
+            exit 1
+          fi
 
       # ۹. جمع‌آوری و تغییر نام به Trp-v1.0.apk
       - name: Prepare Trp APK Outputs
@@ -115,7 +133,7 @@ jobs:
           path: output_apks/*.apk
           retention-days: 14
 
-      # ۱۱. الصاق مستقیم فایل نهایی Trp-v1.0.apk به صفحه Release v1.0
+      # ۱۱. الصاق مستقیم به Release v1.0
       - name: Upload APK directly to v1.0 Release
         uses: softprops/action-gh-release@v2
         with:
