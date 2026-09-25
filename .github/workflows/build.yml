@@ -19,7 +19,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # ۲. دانلود سورس ۱۲۵ مگابایتی از Release v1.0 و استخراج آن
+      # ۲. دانلود سورس ۱۲۵ مگابایتی از Release v1.0
       - name: Download Source ZIP from GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -32,7 +32,7 @@ jobs:
           unzip -o -q "*.zip"
           echo "Extraction complete!"
 
-      # ۳. پیدا کردن پوشه پروژه اندروید
+      # ۳. پیدا کردن پوشه پروژه
       - name: Locate Android Project Root
         run: |
           GRADLEW_PATH=$(find . -name "gradlew" -type f | head -n 1)
@@ -42,10 +42,9 @@ jobs:
             exit 1
           fi
           PROJECT_DIR=$(dirname "$GRADLEW_PATH")
-          echo "Project directory: $PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
 
-      # ۴. استفاده از جاوا ۱۱ (نسخه کاملاً هماهنگ با سورس GTA 2.10)
+      # ۴. تنظیم جاوا JDK 11
       - name: Set up JDK 11
         uses: actions/setup-java@v4
         with:
@@ -53,8 +52,8 @@ jobs:
           java-version: '11'
           cache: 'gradle'
 
-      # ۵. تایید تمام لایسنس‌های اندروید و تنظیمات حافظه
-      - name: Configure Android SDK Environment
+      # ۵. ساخت فایل ضروری local.properties برای شناسایی SDK و NDK
+      - name: Create local.properties & SDK Environment
         run: |
           echo "Accepting Android licenses..."
           yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
@@ -62,7 +61,20 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           
-          mkdir -p "$PROJECT_DIR"
+          # ساخت خودکار local.properties که پلاگین اندروید حتماً به آن نیاز دارد
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$PROJECT_DIR/local.properties"
+          
+          NDK_DIR=$(ls -d $ANDROID_SDK_ROOT/ndk/* 2>/dev/null | tail -n 1)
+          if [ -n "$NDK_DIR" ]; then
+            echo "ndk.dir=$NDK_DIR" >> "$PROJECT_DIR/local.properties"
+            echo "ANDROID_NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
+            echo "ANDROID_NDK_ROOT=$NDK_DIR" >> $GITHUB_ENV
+          fi
+          
+          echo "=== local.properties contents ==="
+          cat "$PROJECT_DIR/local.properties"
+          
+          # تنظیم حافظه رم و تایم‌اوت
           cat << 'EOF' >> "$PROJECT_DIR/gradle.properties"
           org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m
           org.gradle.daemon=false
@@ -75,13 +87,24 @@ jobs:
       - name: Make gradlew Executable
         run: chmod +x "$PROJECT_DIR/gradlew"
 
-      # ۷. ساخت APK با گریدل
+      # ۷. ساخت APK و نمایش دقیق دلیل در صورت بروز خطا
       - name: Build Trp APK with Gradle
         run: |
           cd "$PROJECT_DIR"
-          ./gradlew assembleDebug --stacktrace --no-daemon
+          
+          if ! ./gradlew assembleDebug --no-daemon --console=plain > build.log 2>&1; then
+            echo "❌ BUILD FAILED! Here is the exact root cause:"
+            echo "=========================================================="
+            grep -B 2 -A 25 -i "What went wrong:" build.log || head -n 60 build.log
+            echo "=========================================================="
+            echo "Last 40 lines of build log:"
+            tail -n 40 build.log
+            exit 1
+          fi
+          
+          echo "Build finished successfully!"
 
-      # ۸. جمع‌آوری و تغییر نام فایل نصبی
+      # ۸. آماده‌سازی فایل Trp-v1.0.apk
       - name: Prepare Trp APK Outputs
         run: |
           mkdir -p output_apks
@@ -102,7 +125,7 @@ jobs:
           path: output_apks/*.apk
           retention-days: 14
 
-      # ۱۰. اضافه کردن فایل Trp-v1.0.apk مستقیماً به صفحه Release v1.0
+      # ۱۰. الصاق خودکار به صفحه Release v1.0
       - name: Upload APK directly to v1.0 Release
         uses: softprops/action-gh-release@v2
         with:
