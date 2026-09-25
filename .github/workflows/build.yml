@@ -6,64 +6,46 @@ on:
       - main
       - master
   workflow_dispatch:
-    inputs:
-      direct_zip_url:
-        description: 'لینک مستقیم دانلود فایل زیپ سورس (اختیاری)'
-        required: false
-        default: ''
-      build_type:
-        description: 'Build Type (debug or release)'
-        required: true
-        default: 'debug'
-        type: choice
-        options:
-          - debug
-          - release
 
 jobs:
   build:
-    name: Build Trp (Tehran RP) APK
+    name: Build Trp APK from Release Asset
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Checkout Repository Trp
+      # ۱. دریافت اطلاعات مخزن
+      - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
 
-      # استخراج زیپ از مخزن یا دانلود مستقیم در صورت دادن لینک
-      - name: Locate and Extract Source Code
+      # ۲. دانلود مستقیم فایل ۱۲۵ مگابایتی سورس از Release v1.0 شما و استخراج آن
+      - name: Download Source ZIP from GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Checking repository contents..."
-          ls -la
+          echo "Downloading SAMP-Mobile-GTA-2.10_TehranRp_Shell.zip from Release v1.0..."
+          gh release download v1.0 --pattern "*.zip" || \
+          curl -L -O "https://github.com/${{ github.repository }}/releases/download/v1.0/SAMP-Mobile-GTA-2.10_TehranRp_Shell.zip"
           
-          if [ -n "${{ github.event.inputs.direct_zip_url }}" ]; then
-            echo "Downloading ZIP from URL..."
-            curl -L -o source.zip "${{ github.event.inputs.direct_zip_url }}"
-            unzip -o -q source.zip
-          elif [ -f "SAMP-Mobile-GTA-2.10_TehranRp_Shell.zip" ]; then
-            echo "Found SAMP-Mobile-GTA-2.10_TehranRp_Shell.zip, extracting..."
-            unzip -o -q "SAMP-Mobile-GTA-2.10_TehranRp_Shell.zip"
-          elif ls *.zip 1> /dev/null 2>&1; then
-            echo "Found a zip file in repository, extracting..."
-            unzip -o -q *.zip
-          fi
+          echo "Extracting ZIP..."
+          unzip -o -q "*.zip"
+          echo "Done!"
 
-      # پیدا کردن خودکار مسیر پروژه و فایل gradlew
+      # ۳. پیدا کردن مسیر فایل gradlew
       - name: Locate Android Project Root
         run: |
           GRADLEW_PATH=$(find . -name "gradlew" -type f | head -n 1)
           if [ -z "$GRADLEW_PATH" ]; then
-            echo "❌ ERROR: No Android source files found in the repository!"
-            echo "Please upload SAMP-Mobile-GTA-2.10_TehranRp_Shell.zip to repository!"
+            echo "Error: gradlew file not found after extraction!"
+            ls -la
             exit 1
           fi
           PROJECT_DIR=$(dirname "$GRADLEW_PATH")
+          echo "Found project at: $PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
 
+      # ۴. نصب جاوا JDK 17
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -71,6 +53,7 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
+      # ۵. نصب NDK و CMake برای کدهای C++
       - name: Setup Android NDK & CMake
         uses: android-actions/setup-android@v3
 
@@ -80,25 +63,29 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653" >> $GITHUB_ENV
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/25.2.9519653" >> $GITHUB_ENV
 
+      # ۶. صدور مجوز اجرا
       - name: Make gradlew Executable
         run: chmod +x "$PROJECT_DIR/gradlew"
 
+      # ۷. کامپایل و ساخت APK
       - name: Build Trp APK
         run: |
           cd "$PROJECT_DIR"
           ./gradlew assembleDebug --stacktrace
 
+      # ۸. نام‌گذاری خروجی به Trp-v1.0.apk
       - name: Prepare Trp APK Outputs
         run: |
           mkdir -p output_apks
           find . -name "*.apk" -type f -exec cp {} output_apks/ \;
           cd output_apks
-          FIRST_APK=$(ls *.apk 2>/dev/null | head -n 1)
-          if [ -n "$FIRST_APK" ]; then
-            cp "$FIRST_APK" "Trp-v1.0.apk"
+          APK_FILE=$(ls *.apk 2>/dev/null | head -n 1)
+          if [ -n "$APK_FILE" ]; then
+            cp "$APK_FILE" "Trp-v1.0.apk"
           fi
           ls -lh
 
+      # ۹. آپلود فایل در تب Artifacts
       - name: Upload Trp APK Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -106,12 +93,11 @@ jobs:
           path: output_apks/*.apk
           retention-days: 14
 
-      - name: Create GitHub Release v1.0
+      # ۱۰. اضافه کردن مستقیم فایل Trp-v1.0.apk به همان بخش Releases/v1.0 شما!
+      - name: Upload APK directly to v1.0 Release
         uses: softprops/action-gh-release@v2
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
         with:
           tag_name: "v1.0"
-          name: "Trp v1.0 - Tehran RP Mobile APK"
           files: output_apks/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
