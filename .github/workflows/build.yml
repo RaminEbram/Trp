@@ -1,139 +1,93 @@
-name: Build Trp Mobile APK
+name: Build Tehran RP APK
 
 on:
-  push:
-    branches:
-      - main
-      - master
   workflow_dispatch:
+  push:
+    branches: [ main ]
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
-    name: Build Trp APK
+    name: Build debug APK
     runs-on: ubuntu-latest
+
     permissions:
       contents: write
 
     steps:
-      # ۱. دریافت کد ریپازیتوری
-      - name: Checkout Repository
+      - name: Checkout Repo
+      - name: Check out workflow repository
         uses: actions/checkout@v4
 
-      # ۲. دانلود سورس زیپ تهران‌آرپی از بخش Release
-      - name: Download Source ZIP from GitHub Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "Downloading SAMP-Mobile-GTA-2.10_TehranRp_Shell.zip from Release v1.0..."
-          gh release download v1.0 --pattern "*.zip" || \
-          curl -L -O "https://github.com/${{ github.repository }}/releases/download/v1.0/SAMP-Mobile-GTA-2.10_TehranRp_Shell.zip"
-          echo "Extracting ZIP..."
-          unzip -o -q "*.zip"
-          echo "Extraction complete!"
+      - name: Download & Extract Source Code
+      - name: Download and verify source code
+        id: source
+        shell: bash
+run: |
+          curl -L -o source.zip https://github.com/${{ github.repository }}/releases/download/v1.0/TehranRp_Source_Modified.zip
+          unzip -o source.zip
+          if [ -d "Tehran-Rp" ]; then cp -r Tehran-Rp/* . ; fi
+          if [ -d "TehranRp" ]; then cp -r TehranRp/* . ; fi
+          chmod +x gradlew || true
 
-      # ۳. تشخیص ریشه پروژه اندروید
-      - name: Locate Android Project Root
-        run: |
-          GRADLEW_PATH=$(find . -name "gradlew" -type f | head -n 1)
-          if [ -z "$GRADLEW_PATH" ]; then
-            echo "Error: gradlew file not found after extraction!"
-            ls -la
-            exit 1
-          fi
-          PROJECT_DIR=$(dirname "$GRADLEW_PATH")
-          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+      - name: Set up Java JDK 17
+          set -euo pipefail
+          source_url='https://github.com/RaminEbram/Trp/archive/refs/heads/main.zip'
+          source_archive="$RUNNER_TEMP/trp-source.zip"
+          source_dir="$RUNNER_TEMP/trp-source"
 
-      # ۴. تنظیم جاوا ۱۷
-      - name: Set up JDK 17
+          curl --fail --location --retry 3 --retry-all-errors \
+            --output "$source_archive" "$source_url"
+          echo '7e099b7f109800ff1136681ec2a3fe62b2ce1a55fe04a45d1f8132bfb19e8790  '"$source_archive" \
+            | sha256sum --check --status
+
+          mkdir -p "$source_dir"
+          unzip -q "$source_archive" -d "$source_dir"
+          project_dir="$(find "$source_dir" -type f -name gradlew -printf '%h\n' | head -n 1)"
+          test -n "$project_dir"
+          test -f "$project_dir/settings.gradle" -o -f "$project_dir/settings.gradle.kts"
+          chmod +x "$project_dir/gradlew"
+          echo "project_dir=$project_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
-          distribution: "temurin"
-          java-version: "17"
-          cache: "gradle"
+          distribution: 'temurin'
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+          cache-dependency-path: ${{ steps.source.outputs.project_dir }}/**/*.gradle*
 
-      # ۵. تزریق آفلاین PRDownloader و تصحیح ریپازیتوری خاموش
-      - name: Embed PRDownloader Offline
+      - name: Build Android APK
         run: |
-          echo "Downloading PRDownloader.aar directly into app/libs/..."
-          mkdir -p "$PROJECT_DIR/app/libs"
-          curl -sSL "https://jitpack.io/com/github/amitshekhariitbhu/PRDownloader/1.0.1/PRDownloader-1.0.1.aar" -o "$PROJECT_DIR/app/libs/PRDownloader-1.0.1.aar"
-          
-          echo "Connecting app/build.gradle to local AAR..."
-          sed -i -E "s|['\"]com\\.github\\.amitshekhariitbhu:PRDownloader:[^'\"]+['\"]|files('libs/PRDownloader-1.0.1.aar')|g" "$PROJECT_DIR/app/build.gradle"
-          
-          find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i "s|https://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g" {} +
-          find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i "s|http://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g" {} +
-
-      # ۶. حل کامل حساسیت به حروف کوچک و بزرگ لینوکس و ساخت هدرهای مفقود
-      - name: Universal C++ Case Linking and Missing Header Stubs
-        run: |
-          echo "Reconciling C++ case sensitivity and creating missing playerTabList.h..."
-          echo "aW1wb3J0IG9zLCBzeXMsIGJhc2U2NAoKcHJvamVjdF9kaXIgPSBvcy5lbnZpcm9uLmdldCgiUFJPSkVDVF9ESVIiLCAiLiIpCmNwcF9yb290ID0gb3MucGF0aC5qb2luKHByb2plY3RfZGlyLCAiYXBwL3NyYy9tYWluL2NwcCIpCmlmIG5vdCBvcy5wYXRoLmV4aXN0cyhjcHBfcm9vdCk6CiAgICBmb3Igcm9vdCwgZGlycywgZmlsZXMgaW4gb3Mud2Fsayhwcm9qZWN0X2Rpcik6CiAgICAgICAgaWYgImNwcCIgaW4gZGlyczoKICAgICAgICAgICAgY3BwX3Jvb3QgPSBvcy5wYXRoLmpvaW4ocm9vdCwgImNwcCIpCiAgICAgICAgICAgIGJyZWFrCgpwcmludCgiU2Nhbm5pbmcgQysrIHJvb3Q6IiwgY3BwX3Jvb3QpCgojIDEuIFdpZGdldCBkaXJzIGFuZCBwbGF5ZXJUYWJMaXN0IHN0dWJzCndpZGdldF9kaXJzID0gWwogICAgb3MucGF0aC5qb2luKGNwcF9yb290LCAic2FtcC9ndWkvc2FtcF93aWRnZXRzIiksCiAgICBvcy5wYXRoLmpvaW4oY3BwX3Jvb3QsICJzYW1wL3NhbXBfd2lkZ2V0cyIpLAogICAgb3MucGF0aC5qb2luKGNwcF9yb290LCAic2FtcF93aWRnZXRzIiksCiAgICBvcy5wYXRoLmpvaW4oY3BwX3Jvb3QsICJzYW1wL2dhbWUvc2FtcF93aWRnZXRzIiksCl0KCmhlYWRlcl9iNjQgPSAoCiAgICAiSTNCeVlXZHRhU0J2Ym1ObENtTnNZWE56SUVOUWJHRjVaWEpVWVdKTWFYTjBJSDBLY0hWaWJHbGpPZ29nSUdBZyIKICAgICJRMVBsWVdsdmNsUmhZa3hwYzNRd2RtOXBaQ2tLSENBbldtbHlkWFZzSUg1RFVsRjVaWEpVWVdKTWFYTjBDZ2xJZEQwa0tpaUFnIgogICAgSUNCdlpXUmtTVm9nUjJWeWJtUmxjaWdwSUh0OUNnWUFkMmxrSUhKbGJtUmxjaWdwSUh0OUNnWUFkMmxrSUZOb2IzY29JbWl2IgogICAgImJHMWpnQ0FwY0c5Y0loMHBDZ1lBWTJ4dmMyVW9LU2d0ZWdva0lIZnZkV2x2YzJscFpHb25LSWlrSUNCY1kybHZiMnNsSUhzS1doaUkiCiAgICAiaVNBZ2RHOTJaMnhsSUh0OUNnWUFkMmxrSUhSdloyZHNaU2dwSUh0OUNnWUFZMnh2YzJVb0tTZ3RlZ29rSUdmcmRXbHZjMmxwIgogICAgIlpHb25LSWlrSUNCY1kybHZiMnNsSUhzS1doaWlpU0FnYjNCbGJpZ29LU2d0ZWdva0lIZnZkV2x2YzJscFpHb25LSWlrSUJpIgogICAgImIyNXNJRWx6UVdOMGFYWmxLU2drWTJ5dWN5Qm1ZV3h6WlQwZ01Fa2dZMjl1YzNRZ2FXTkJjM1JwZG1Vb0tTZ3JjbVYwZFhKbiIKICAgICJJSFpsYkdOek95QnBDZ1lBWTJsdWNYUWdhWE5mWVdOMGFYWmxLU2drWTI5dWN5Qm1ZV3h6WlQwZ01Fa2dZMjl1YzNRZ2FXTmYiCiAgICAiYldsa0tTZ3JjbVYwZFhKblpYUXpJSDBLY0hWaWJHbHBDZ1lBWTJsdWNYUWdhWE5vYjNjb0tTZ3JjbVYwZFhKblpYUXpJSDBLIgogICAgImNIVmliR2xwQ2dZQVkybHVjWFFnWVhOMGFYWmxLU2drWTI5dWN5Qm1ZV3h6WlQwZ01Fa2dZMjl1YzNRZ2FXTmZjMmx2ZHdvSwogICAgIklIMHRDZ1lBYjI5d2FXNWtJSFpsYkdOek95QnBDZ1lBWTJ4dmN5Qm1ZV3h6WlQwZ01Fa2dZMjl1YzNRZ2FXTmZjMmx2ZHdvSwogICAgIklIMHRDZ1lBYjI5d2FXNWtJSFpsYkdOek95QnBDZ1lBWTJsdWNYUWdWR3BrWVhSbEtTZ3JjbVYwZFhKblpYUXpJSDBLY0hWaWIKICAgICJHbHBDR1lBWTJsdWNYUWdkWEJrWVhSbEtTZ3JjbVYwZFhKblpYUXpJSDBLY0hWaWJHbHBDR1lBWTJsdWNYUWdRMnhsWVhJb0tTZ3IKICAgICJjbVYwZFhKblpYUXpJSDBLY0hWaWJHbHBDR1lBWTJsdWNYUWdZMnhsY21ncElIMHRDZ1lBYjI5d2FXNWtJSFpsYkdOek95QnAiCiAgICAiQ2dZQVkybHVjWFFnVTNKdmMyVnpLU2dyY21WMGRYSm5aWFF6SUgwS2NIVmliR2xwQ2dZQVkybHVjWFFnY0hKdlkyVnpLU2dyIgogICAgImNtVjBkWEpuWlhReklIMEtjSFZpYkdscENnWUFZMmx1Y1hRZ1NtcHVkQ2d2YVdsd1BDNWtkV3hzY0hSeUtTZ3JjbVYwZFhKbiIKICAgICJaWFF6SUgwS2NIVmliR2xwQ2dZQVkybHVjWFFnYVc1cGRDaGdaMmx3UEM1a2RXeHNjSFJ5S1NncmNtVjBkWEpuWlhReklIMEtjIgogICAgIkhWaWJHbHBDR1lBWTJsdWNYUWdVTlZ6WlhRb0tTZ3JjbVYwZFhKblpYUXpJSDBLY0hWaWJHbHBDR1lBWTJsdWNYUWdjbVZ6IgogICAgIlpYUW9LU2dyY21WMGRYSm5aWFF6SUgwS2NIVmliR2xwQ2dZQVkybHVjWFFnYjNCbGNtRjBieUJpYjI5c0tTZ2dZMjl1YzNRZyIKICAgICJaV0YwYjNKdUptRnNjM1V0T3dwcE93cHRjMmx1WnlCUWJHRjVaWEpVWVdKTWFYTjBJRDBnUTFCc1lXbHZjbFJoWWt4cGMzUXRDbz09IgopCmhlYWRlcl9jb2RlID0gYmFzZTY0LmI2NGRlY29kZShoZWFkZXJfYjY0KS5kZWNvZGUoInV0Zi04IikKCgpmb3Igd2QgaW4gd2lkZ2V0X2RpcnM6CiAgICBvcy5tYWtlZGlycyh3ZCwgZXhpc3Rfb2s9VHJ1ZSkKICAgIGZvciBmbmFtZSBpbiBbInBsYXllclRhYkxpc3QuaCIsICJQbGF5ZXJUYWJMaXN0LmgiXToKICAgICAgICB0cnk6CiAgICAgICAgICAgIHdpdGggb3Blbihvcy5wYXRoLmpvaW4od2QsIGZuYW1lKSwgInciKSBhcyBmOgogICAgICAgICAgICAgICAgZi53cml0ZShoZWFkZXJfY29kZSkKICAgICAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgICAgICBwYXNzCgpmb3Igcm9vdCwgZGlycywgZmlsZXMgaW4gb3Mud2FsayhjcHBfcm9vdCk6CiAgICBmb3IgZCBpbiBsaXN0KGRpcnMpOgogICAgICAgIHZhcmlhbnRzID0gewogICAgICAgICAgICBkLmxvd2VyKCksIGQudXBwZXIoKSwgZC5jYXBpdGFsaXplKCksCiAgICAgICAgICAgICJSYWtOZXQiLCAicmFrbmV0IiwgInZlbmRvciIsICJWZW5kb3IiLAogICAgICAgICAgICAic2FtcF93aWRnZXRzIiwgInZvaWNlIiwgIlZvaWNlIiwgInZvaWNlX25ldyIKICAgICAgICB9CiAgICAgICAgZm9yIHYgaW4gdmFyaWFudHM6CiAgICAgICAgICAgIGlmIHYgPT0gZDoKICAgICAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgICAgIGRzdCA9IG9zLnBhdGguam9pbihyb290LCB2KQogICAgICAgICAgICBpZiBub3Qgb3MucGF0aC5sZXhpc3RzKGRzdCk6CiAgICAgICAgICAgICAgICB0cnk6CiAgICAgICAgICAgICAgICAgICAgb3Muc3ltbGluayhkLCBkc3QpCiAgICAgICAgICAgICAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgICAgICAgICAgICAgIHBhc3MKCmZvciByb290LCBkaXJzLCBmaWxlcyBpbiBvcy53YWxrKGNwcF9yb290KToKICAgIGZvciBmIGluIGxpc3QoZmlsZXMpOgogICAgICAgIGlmIGYuZW5kc3dpdGgoKCIuaCIsICIuaHBwIiwgIi5pbmMiLCAiLmMiLCAiLmNwcCIsICIuY3h4IikpOgogICAgICAgICAgICBuYW1lLCBleHQgPSBvcy5wYXRoLnNwbGl0ZXh0KGYpCiAgICAgICAgICAgIHZhcmlhbnRzID0gewogICAgICAgICAgICAgICAgZi5sb3dlcigpLAogICAgICAgICAgICAgICAgZi51cHBlcigpLAogICAgICAgICAgICAgICAgbmFtZS5sb3dlcigpICsgZXh0Lmxvd2VyKCksCiAgICAgICAgICAgICAgICBuYW1lLnVwcGVyKCkgKyBleHQubG93ZXIoKSwKICAgICAgICAgICAgICAgIG5hbWUuY2FwaXRhbGl6ZSgpICsgZXh0Lmxvd2VyKCksCiAgICAgICAgICAgICAgICBuYW1lLmxvd2VyKCkgKyBleHQudXBwZXIoKSwKICAgICAgICAgICAgICAgIG5hbWUudXBwZXIoKSArIGV4dC51cHBlcigpLAogICAgICAgICAgICAgICAgIlJHQkEuaCIsICJyZ2JhLmgiLCAiUmdiYS5oIiwKICAgICAgICAgICAgICAgICJCaXRTdHJlYW0uaCIsICJiaXRzdHJlYW0uaCIsICJCaXRzdHJlYW0uaCIsCiAgICAgICAgICAgICAgICAicGxheWVyVGFiTGlzdC5oIiwgIlBsYXllclRhYkxpc3QuaCIsCiAgICAgICAgICAgICAgICAiUmFrTmV0RGVmaW5lcy5oIiwgInJha25ldGRlZmluZXMuaCIsCiAgICAgICAgICAgICAgICAiU3RyaW5nQ29tcHJlc3Nvci5oIiwgInN0cmluZ2NvbXByZXNzb3IuaCIsCiAgICAgICAgICAgICAgICAiUmFrUGVlci5oIiwgInJha3BlZXIuaCIsCiAgICAgICAgICAgICAgICAiUmFrUGVlckludGVyZmFjZS5oIiwgInJha3BlZXJpbnRlcmZhY2UuaCIsCiAgICAgICAgICAgICAgICAiTWVzc2FnZUlkZW50aWZpZXJzLmgiLCAibWVzc2FnZWlkZW50aWZpZXJzLmgiLAogICAgICAgICAgICAgICAgIk5ldHdvcmtUeXBlcy5oIiwgIm5ldHdvcmt0eXBlcy5oIiwKICAgICAgICAgICAgICAgICJFeHBvcnQuaCIsICJleHBvcnQuaCIKICAgICAgICAgICAgfQogICAgICAgICAgICBmb3IgdiBpbiB2YXJpYW50czoKICAgICAgICAgICAgICAgIGlmIHYgPT0gZDoKICAgICAgICAgICAgICAgICAgICBjb250aW51ZQogICAgICAgICAgICAgICAgZHN0ID0gb3MucGF0aC5qb2luKHJvb3QsIHYpCiAgICAgICAgICAgICAgICBpZiBub3Qgb3MucGF0aC5sZXhpc3RzKGRzdCk6CiAgICAgICAgICAgICAgICAgICAgdHJ5OgogICAgICAgICAgICAgICAgICAgICAgICBvcy5zeW1saW5rKGYsIGRzdCkKICAgICAgICAgICAgICAgICAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgICAgICAgICAgICAgICAgICBwYXNzCnByaW50KCJDKysgaGVhZGVycyBhbmQgY2FzaW5nIHN1Y2Nlc3NmdWxseSByZWNvbmNpbGVkISIpCg==" | base64 -d | python3
-
-      # ۷. نصب و پیکربندی Android SDK و NDK
-      - name: Setup Android SDK and NDK 26.2.11394342
-        run: |
-          echo "Accepting Android SDK licenses..."
-          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
-          
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          
-          if [ ! -d "$ANDROID_SDK_ROOT/ndk/26.2.11394342" ]; then
-            echo "Installing NDK 26.2.11394342..."
-            echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;26.2.11394342"
+          if [ -f "./gradlew" ]; then
+            ./gradlew assembleDebug --no-daemon --stacktrace
+          else
+            gradle assembleDebug --no-daemon --stacktrace
           fi
-          
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.2.11394342" >> $GITHUB_ENV
-          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/26.2.11394342" >> $GITHUB_ENV
-          
-          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$PROJECT_DIR/local.properties"
+      - name: Build debug APK
+        working-directory: ${{ steps.source.outputs.project_dir }}
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      # ۸. اعطای دسترسی اجرایی به gradlew
-      - name: Make gradlew Executable
-        run: chmod +x "$PROJECT_DIR/gradlew"
-
-      # ۹. ساخت فایل نصبی APK بازی با Gradle
-      - name: Build Trp APK with Gradle
-        run: |
-          cd "$PROJECT_DIR"
-          set -o pipefail
-          ./gradlew assembleDebug --no-daemon 2>&1 | tee build.log || BUILD_STATUS=$?
-          
-          if [ -n "$BUILD_STATUS" ] && [ "$BUILD_STATUS" -ne 0 ]; then
-            echo ""
-            echo "====================== [EXACT COMPILER ERROR IS HERE] ======================"
-            grep -B 1 -A 25 "FAILED:" build.log || grep -B 2 -A 20 "error:" build.log || tail -n 50 build.log
-            echo "============================================================================"
-            exit 1
-          fi
-
-      # ۱۰. جمع‌آوری و تغییر نام فایل‌های APK
-      - name: Prepare Trp APK Outputs
-        run: |
-          mkdir -p output_apks
-          find . -name "*.apk" -type f -exec cp {} output_apks/ \;
-          cd output_apks
-          APK_FILE=$(ls *.apk 2>/dev/null | head -n 1)
-          if [ -n "$APK_FILE" ]; then
-            cp "$APK_FILE" "Trp-v1.0.apk"
-          fi
-          echo "Generated APK:"
-          ls -lh
-
-      # ۱۱. ذخیره فایل نصبی در بخش Artifacts گیت‌هاب
-      - name: Upload Trp APK Artifact
+      - name: Upload APK to Artifacts
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Trp-APK-v1.0
-          path: output_apks/*.apk
-          retention-days: 14
+          name: Tehran-RP-Debug-APK
+          path: '/build/outputs/apk//*.apk'
 
-      # ۱۲. الصاق مستقیم به Release v1.0
-      - name: Upload APK directly to v1.0 Release
+      - name: Attach APK to Releases
         uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
         with:
-          tag_name: "v1.0"
-          files: output_apks/*.apk
+          tag_name: v1.0
+          files: '/build/outputs/apk//*.apk'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: Tehran-RP-debug-apk
+          if-no-files-found: error
+          path: ${{ steps.source.outputs.project_dir }}/**/build/outputs/apk/debug/*.apk
