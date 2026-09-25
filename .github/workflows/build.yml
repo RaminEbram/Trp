@@ -47,6 +47,30 @@ jobs:
           java-version: "17"
           cache: "gradle"
 
+      - name: Generate Signing Keystore (new.jks)
+        run: |
+          echo "Generating valid RSA keystore new.jks for APK signing..."
+          mkdir -p keys
+          keytool -genkey -v \
+            -keystore "keys/new.jks" \
+            -alias key0 \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass 123123 \
+            -keypass 123123 \
+            -dname "CN=Trp, OU=SAMP, O=TehranRP, L=Tehran, ST=Tehran, C=IR"
+          
+          mkdir -p "$PROJECT_DIR/../keys"
+          mkdir -p "$PROJECT_DIR/keys"
+          mkdir -p "$PROJECT_DIR/app/keys"
+          cp -f keys/new.jks "$PROJECT_DIR/../keys/new.jks" 2>/dev/null || true
+          cp -f keys/new.jks "$PROJECT_DIR/keys/new.jks" 2>/dev/null || true
+          cp -f keys/new.jks "$PROJECT_DIR/app/keys/new.jks" 2>/dev/null || true
+          KEYSTORE_PATH="$(pwd)/keys/new.jks"
+          echo "KEYSTORE_ABS_PATH=$KEYSTORE_PATH" >> $GITHUB_ENV
+          echo "Keystore successfully generated at: $KEYSTORE_PATH"
+
       - name: Embed PRDownloader Offline & Fix Gradle Repositories
         run: |
           echo "Downloading PRDownloader AAR directly into app/libs/ and libs/..."
@@ -59,6 +83,7 @@ jobs:
           python3 -c '
           import os
           project_dir = os.environ.get("PROJECT_DIR", ".")
+          keystore_path = os.environ.get("KEYSTORE_ABS_PATH", os.path.abspath("keys/new.jks"))
           for root, dirs, files in os.walk(project_dir):
               for f in files:
                   if f.endswith((".gradle", ".gradle.kts")):
@@ -81,12 +106,15 @@ jobs:
                               # 4. Support *.aar in libs fileTree
                               if "fileTree" in line and "*.jar" in line and "*.aar" not in line:
                                   line = line.replace("\x27*.jar\x27", "\x27*.jar\x27, \x27*.aar\x27").replace("\"*.jar\"", "\x27*.jar\x27, \x27*.aar\x27")
+                              # 5. Point storeFile directly to generated keystore
+                              if "storeFile file" in line:
+                                  line = f"""            storeFile file("{keystore_path}")\n"""
                               lines.append(line)
                           with open(p, "w", encoding="utf-8") as gf:
                               gf.write("".join(lines))
                       except Exception as e:
                           print("Warning on", p, e)
-          print("All Gradle files successfully sanitized and balanced!")
+          print("All Gradle files successfully sanitized and keystore linked!")
           '
 
       - name: Reconcile C++ Header Casings (Header-Only, No Redundant Files)
