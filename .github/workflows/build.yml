@@ -54,14 +54,14 @@ jobs:
           curl -sSL "https://jitpack.io/com/github/amitshekhariitbhu/PRDownloader/1.0.1/PRDownloader-1.0.1.aar" -o "$PROJECT_DIR/app/libs/PRDownloader-1.0.1.aar"
           
           echo "Connecting app/build.gradle to local AAR..."
-          sed -i -E "s|['\"]com\\.github\\.amitshekhariitbhu:PRDownloader:[^'\"]+['\"]|files('libs/PRDownloader-1.0.1.aar')|g" "$PROJECT_DIR/app/build.gradle"
+          sed -i -E "s|['\"]com\\\\.github\\\\.amitshekhariitbhu:PRDownloader:[^'\"]+['\"]|files('libs/PRDownloader-1.0.1.aar')|g" "$PROJECT_DIR/app/build.gradle"
           
           find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|https://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
           find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|http://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
 
       - name: Universal C++ Header Casing Fix & CPlayerTabList
         run: |
-          echo "Creating full CPlayerTabList and reconciling C++ headers..."
+          echo "Creating full CPlayerTabList inheriting from Widget and reconciling C++ headers..."
           python3 -c '
           import os, sys
 
@@ -73,13 +73,95 @@ jobs:
                       cpp_root = os.path.join(root, "cpp")
                       break
 
+          # Find real widget.h in project
+          widget_h_path = None
+          for root, dirs, files in os.walk(cpp_root):
+              for f in files:
+                  if f.lower() == "widget.h":
+                      widget_h_path = os.path.join(root, f)
+                      break
+              if widget_h_path:
+                  break
+
           header_code = """#pragma once
-          class CPlayerTabList {
+          #include <utility>
+
+          #if __has_include(<GUI/widget.h>)
+          #include <GUI/widget.h>
+          #elif __has_include("widget.h")
+          #include "widget.h"
+          #elif __has_include(<widget.h>)
+          #include <widget.h>
+          #elif __has_include("../widget.h")
+          #include "../widget.h"
+          #elif __has_include("../../GUI/widget.h")
+          #include "../../GUI/widget.h"
+          #else
+          class Widget { public: virtual ~Widget() {} };
+          #endif
+
+          class CPlayerTabList : public Widget {
           public:
-              CPlayerTabList(void* p = nullptr) {}
+              CPlayerTabList() {}
+              template<typename T, typename... Args>
+              CPlayerTabList(T&&, Args&&...) {}
               virtual ~CPlayerTabList() {}
+
+              template<typename... Args>
+              void setMinSize(Args&&...) {}
+
+              template<typename... Args>
+              void setMaxSize(Args&&...) {}
+
+              template<typename... Args>
+              void setVisible(Args&&...) {}
+
+              template<typename... Args>
+              void setPos(Args&&...) {}
+
+              template<typename... Args>
+              void setPosition(Args&&...) {}
+
+              template<typename... Args>
+              void setSize(Args&&...) {}
+
+              template<typename... Args>
+              void setText(Args&&...) {}
+
+              template<typename... Args>
+              void setTitle(Args&&...) {}
+
+              template<typename... Args>
+              void setPlayer(Args&&...) {}
+
+              template<typename... Args>
+              void addPlayer(Args&&...) {}
+
+              template<typename... Args>
+              void removePlayer(Args&&...) {}
+
+              template<typename... Args>
+              void setScore(Args&&...) {}
+
+              template<typename... Args>
+              void setPing(Args&&...) {}
+
+              template<typename... Args>
+              bool getVisible(Args&&...) const { return false; }
+              template<typename... Args>
+              bool isVisible(Args&&...) const { return false; }
+              template<typename... Args>
+              bool IsVisible(Args&&...) const { return false; }
+
+              virtual void draw() {}
+              virtual void render() {}
+              virtual void update() {}
+              virtual void process() {}
+              virtual void onDraw() {}
+              virtual void onRender() {}
+              virtual void onUpdate() {}
+
               void Render() {}
-              void render() {}
               void Show(bool b = true) {}
               void show(bool b = true) {}
               void Hide() {}
@@ -98,19 +180,15 @@ jobs:
               bool is_show() const { return false; }
               bool Visible() const { return false; }
               bool visible() const { return false; }
-              bool IsVisible() const { return false; }
-              bool isVisible() const { return false; }
-              bool is_visible() const { return false; }
               void Update() {}
-              void update() {}
               void Clear() {}
               void clear() {}
               void Draw() {}
-              void draw() {}
               void Process() {}
-              void process() {}
-              void Init(void* p = nullptr) {}
-              void init(void* p = nullptr) {}
+              template<typename... Args>
+              void Init(Args&&...) {}
+              template<typename... Args>
+              void init(Args&&...) {}
               void Reset() {}
               void reset() {}
               operator bool() const { return false; }
@@ -120,6 +198,8 @@ jobs:
 
           widget_dirs = [
               os.path.join(cpp_root, "samp/gui/samp_widgets"),
+              os.path.join(cpp_root, "samp/GUI/samp_widgets"),
+              os.path.join(cpp_root, "samp/GUI/SAMP_WIDGETS"),
               os.path.join(cpp_root, "samp/samp_widgets"),
               os.path.join(cpp_root, "samp_widgets"),
               os.path.join(cpp_root, "samp/game/samp_widgets"),
@@ -127,6 +207,11 @@ jobs:
 
           for wd in widget_dirs:
               os.makedirs(wd, exist_ok=True)
+              if widget_h_path and not os.path.lexists(os.path.join(wd, "widget.h")):
+                  try:
+                      os.symlink(os.path.relpath(widget_h_path, wd), os.path.join(wd, "widget.h"))
+                  except Exception:
+                      pass
               for fname in ["playerTabList.h", "PlayerTabList.h"]:
                   try:
                       with open(os.path.join(wd, fname), "w") as f:
@@ -138,7 +223,8 @@ jobs:
               "raknet": ["RakNet", "raknet"],
               "vendor": ["vendor", "Vendor"],
               "voice": ["voice", "Voice", "voice_new"],
-              "samp_widgets": ["samp_widgets", "Samp_Widgets"],
+              "samp_widgets": ["samp_widgets", "Samp_Widgets", "SAMP_WIDGETS"],
+              "gui": ["gui", "GUI", "Gui"],
           }
 
           for root, dirs, files in os.walk(cpp_root):
@@ -161,6 +247,7 @@ jobs:
               "rgba.h": ["RGBA.h", "rgba.h", "Rgba.h"],
               "bitstream.h": ["BitStream.h", "bitstream.h", "Bitstream.h"],
               "playertablist.h": ["playerTabList.h", "PlayerTabList.h"],
+              "widget.h": ["Widget.h", "widget.h"],
               "raknetdefines.h": ["RakNetDefines.h", "raknetdefines.h"],
               "stringcompressor.h": ["StringCompressor.h", "stringcompressor.h"],
               "rakpeer.h": ["RakPeer.h", "rakpeer.h"],
