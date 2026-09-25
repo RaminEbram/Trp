@@ -1,9 +1,7 @@
 name: Build Tehran RP APK
 
 on:
-  workflow_dispatch:
   push:
-    branches: [ main ]
     branches: [main, master]
   workflow_dispatch:
 
@@ -15,26 +13,14 @@ jobs:
     name: Build debug APK
     runs-on: ubuntu-latest
 
-    permissions:
-      contents: write
-
     steps:
-      - name: Checkout Repo
       - name: Check out workflow repository
         uses: actions/checkout@v4
 
-      - name: Download & Extract Source Code
       - name: Download and verify source code
         id: source
         shell: bash
-run: |
-          curl -L -o source.zip https://github.com/${{ github.repository }}/releases/download/v1.0/TehranRp_Source_Modified.zip
-          unzip -o source.zip
-          if [ -d "Tehran-Rp" ]; then cp -r Tehran-Rp/* . ; fi
-          if [ -d "TehranRp" ]; then cp -r TehranRp/* . ; fi
-          chmod +x gradlew || true
-
-      - name: Set up Java JDK 17
+        run: |
           set -euo pipefail
           source_url='https://github.com/RaminEbram/Trp/archive/refs/heads/main.zip'
           source_archive="$RUNNER_TEMP/trp-source.zip"
@@ -42,52 +28,36 @@ run: |
 
           curl --fail --location --retry 3 --retry-all-errors \
             --output "$source_archive" "$source_url"
+
           echo '7e099b7f109800ff1136681ec2a3fe62b2ce1a55fe04a45d1f8132bfb19e8790  '"$source_archive" \
             | sha256sum --check --status
 
           mkdir -p "$source_dir"
           unzip -q "$source_archive" -d "$source_dir"
+
           project_dir="$(find "$source_dir" -type f -name gradlew -printf '%h\n' | head -n 1)"
+
           test -n "$project_dir"
           test -f "$project_dir/settings.gradle" -o -f "$project_dir/settings.gradle.kts"
+
           chmod +x "$project_dir/gradlew"
           echo "project_dir=$project_dir" >> "$GITHUB_OUTPUT"
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
           distribution: temurin
           java-version: '17'
           cache: gradle
           cache-dependency-path: ${{ steps.source.outputs.project_dir }}/**/*.gradle*
 
-      - name: Build Android APK
-        run: |
-          if [ -f "./gradlew" ]; then
-            ./gradlew assembleDebug --no-daemon --stacktrace
-          else
-            gradle assembleDebug --no-daemon --stacktrace
-          fi
       - name: Build debug APK
         working-directory: ${{ steps.source.outputs.project_dir }}
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK to Artifacts
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Tehran-RP-Debug-APK
-          path: '/build/outputs/apk//*.apk'
-
-      - name: Attach APK to Releases
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
-        with:
-          tag_name: v1.0
-          files: '/build/outputs/apk//*.apk'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           name: Tehran-RP-debug-apk
           if-no-files-found: error
           path: ${{ steps.source.outputs.project_dir }}/**/build/outputs/apk/debug/*.apk
