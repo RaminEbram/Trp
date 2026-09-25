@@ -52,24 +52,30 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
-      # ۵. اتصال مستقیم به مخزن JitPack و معرفی سراسری
-      - name: Redirect Dead Repositories to JitPack
+      # ۵. دانلود مستقیم فایل پکیج PRDownloader و تزریق به settings.gradle
+      - name: Configure Repositories & Pre-cache PRDownloader
         run: |
-          echo "Redirecting obsolete mint.splunk.com to https://jitpack.io/..."
+          echo "Pre-caching PRDownloader directly from JitPack..."
+          M2_DIR="$HOME/.m2/repository/com/github/amitshekhariitbhu/PRDownloader/1.0.1"
+          mkdir -p "$M2_DIR"
+          curl -sSL "https://jitpack.io/com/github/amitshekhariitbhu/PRDownloader/1.0.1/PRDownloader-1.0.1.aar" -o "$M2_DIR/PRDownloader-1.0.1.aar" || true
+          curl -sSL "https://jitpack.io/com/github/amitshekhariitbhu/PRDownloader/1.0.1/PRDownloader-1.0.1.pom" -o "$M2_DIR/PRDownloader-1.0.1.pom" || true
+          
+          # اصلاح آدرس‌ها
           find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|https://mint.splunk.com/gradle/|https://jitpack.io/|g' {} +
           find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|http://mint.splunk.com/gradle/|https://jitpack.io/|g' {} +
           
-          mkdir -p ~/.gradle
-          cat << 'EOF' > ~/.gradle/init.gradle
-          allprojects {
-              repositories {
-                  google()
-                  mavenCentral()
-                  maven { url 'https://jitpack.io' }
-              }
-          }
-          EOF
-          echo "JitPack globally configured!"
+          # افزودن مخزن محلی و JitPack به settings.gradle (محل اصلی مخازن در گریدل ۸)
+          if [ -f "$PROJECT_DIR/settings.gradle" ]; then
+            sed -i "s|repositories {|repositories {\n        mavenLocal()\n        maven { url 'https://jitpack.io' }|g" "$PROJECT_DIR/settings.gradle"
+          fi
+          if [ -f "$PROJECT_DIR/settings.gradle.kts" ]; then
+            sed -i 's|repositories {|repositories {\n        mavenLocal()\n        maven("https://jitpack.io")|g' "$PROJECT_DIR/settings.gradle.kts"
+          fi
+          
+          # افزودن به build.gradle
+          find "$PROJECT_DIR" -maxdepth 2 -name "build.gradle" -exec sed -i "s|repositories {|repositories {\n        mavenLocal()\n        maven { url 'https://jitpack.io' }|g" {} +
+          echo "Settings and repositories updated successfully!"
 
       # ۶. نصب دقیق نسخه NDK 26.2.11394342
       - name: Setup Android SDK & NDK 26.2.11394342
@@ -83,8 +89,6 @@ jobs:
           if [ ! -d "$ANDROID_SDK_ROOT/ndk/26.2.11394342" ]; then
             echo "Installing NDK 26.2.11394342..."
             echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;26.2.11394342"
-          else
-            echo "NDK 26.2.11394342 is already installed!"
           fi
           
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.2.11394342" >> $GITHUB_ENV
@@ -92,11 +96,11 @@ jobs:
           
           echo "sdk.dir=$ANDROID_SDK_ROOT" > "$PROJECT_DIR/local.properties"
 
-      # ۷. صدور مجوز اجرایی
+      # ۷. صدور مجوز اجرایی به gradlew
       - name: Make gradlew Executable
         run: chmod +x "$PROJECT_DIR/gradlew"
 
-      # ۸. ساخت APK و نمایش دقیق خطا در پایین صفحه
+      # ۸. ساخت APK با گریدل
       - name: Build Trp APK with Gradle
         run: |
           cd "$PROJECT_DIR"
@@ -125,7 +129,7 @@ jobs:
           echo "Generated APK:"
           ls -lh
 
-      # ۱۰. ذخیره در بخش Artifacts
+      # ۱۰. آپلود به بخش Artifacts
       - name: Upload Trp APK Artifact
         uses: actions/upload-artifact@v4
         with:
