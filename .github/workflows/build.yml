@@ -17,23 +17,14 @@ jobs:
       - name: Check out workflow repository
         uses: actions/checkout@v4
 
-      - name: Download and verify source code
+      - name: Clone source code
         id: source
         shell: bash
         run: |
           set -euo pipefail
-          source_url='https://github.com/RaminEbram/Trp/archive/refs/heads/main.zip'
-          source_archive="$RUNNER_TEMP/trp-source.zip"
           source_dir="$RUNNER_TEMP/trp-source"
 
-          curl --fail --location --retry 3 --retry-all-errors \
-            --output "$source_archive" "$source_url"
-
-          echo '7e099b7f109800ff1136681ec2a3fe62b2ce1a55fe04a45d1f8132bfb19e8790  '"$source_archive" \
-            | sha256sum --check --status
-
-          mkdir -p "$source_dir"
-          unzip -q "$source_archive" -d "$source_dir"
+          git clone --depth 1 https://github.com/RaminEbram/Trp.git "$source_dir"
 
           project_dir="$(find "$source_dir" -type f -name gradlew -printf '%h\n' | head -n 1)"
 
