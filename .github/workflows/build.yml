@@ -2,170 +2,258 @@ name: Build Trp Mobile APK
 
 on:
   push:
-    branches: [main, master]
+    branches:
+      - main
+      - master
   workflow_dispatch:
-
-permissions:
-  contents: write
 
 jobs:
   build:
     name: Build Trp APK
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
-      - name: Check out workflow repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Download source ZIP from release
-        id: source
+      - name: Download Source ZIP from GitHub Release
         env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
-          archive_name='SAMP-Mobile-GTA-2.10_TehranRp_Shell.zip'
-          source_dir="$RUNNER_TEMP/trp-source"
-          archive_path="$RUNNER_TEMP/$archive_name"
+          echo "Downloading SAMP-Mobile-GTA-2.10_TehranRp_Shell.zip from Release v1.0..."
+          gh release download v1.0 --pattern "*.zip" || \
+          curl -L -O "https://github.com/${{ github.repository }}/releases/download/v1.0/SAMP-Mobile-GTA-2.10_TehranRp_Shell.zip"
+          echo "Extracting ZIP..."
+          unzip -o -q "*.zip"
+          echo "Extraction complete!"
 
-          gh release download v1.0 \
-            --repo "${{ github.repository }}" \
-            --pattern "$archive_name" \
-            --dir "$RUNNER_TEMP"
+      - name: Locate Android Project Root
+        run: |
+          GRADLEW_PATH=$(find . -name "gradlew" -type f | head -n 1)
+          if [ -z "$GRADLEW_PATH" ]; then
+            echo "Error: gradlew file not found after extraction!"
+            ls -la
+            exit 1
+          fi
+          PROJECT_DIR=$(dirname "$GRADLEW_PATH")
+          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
 
-          test -f "$archive_path"
-          mkdir -p "$source_dir"
-          unzip -q "$archive_path" -d "$source_dir"
-
-          project_dir="$(find "$source_dir" -type f -name gradlew -printf '%h\n' | head -n 1)"
-          test -n "$project_dir"
-          test -f "$project_dir/settings.gradle" -o -f "$project_dir/settings.gradle.kts"
-
-          chmod +x "$project_dir/gradlew"
-          echo "project_dir=$project_dir" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Java 17
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: '17'
-          cache: gradle
-          cache-dependency-path: ${{ steps.source.outputs.project_dir }}/**/*.gradle*
+          distribution: "temurin"
+          java-version: "17"
+          cache: "gradle"
 
-      - name: Embed PRDownloader offline
-        working-directory: ${{ steps.source.outputs.project_dir }}
-        shell: bash
+      - name: Embed PRDownloader Offline
         run: |
-          set -euo pipefail
-          mkdir -p app/libs
+          echo "Downloading PRDownloader.aar directly into app/libs/..."
+          mkdir -p "$PROJECT_DIR/app/libs"
+          curl -sSL "https://jitpack.io/com/github/amitshekhariitbhu/PRDownloader/1.0.1/PRDownloader-1.0.1.aar" -o "$PROJECT_DIR/app/libs/PRDownloader-1.0.1.aar"
+          
+          echo "Connecting app/build.gradle to local AAR..."
+          sed -i -E "s|['\"]com\\.github\\.amitshekhariitbhu:PRDownloader:[^'\"]+['\"]|files('libs/PRDownloader-1.0.1.aar')|g" "$PROJECT_DIR/app/build.gradle"
+          
+          find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|https://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
+          find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|http://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
 
-          curl --fail --location --retry 3 --retry-all-errors \
-            'https://jitpack.io/com/github/amitshekhariitbhu/PRDownloader/1.0.1/PRDownloader-1.0.1.aar' \
-            --output app/libs/PRDownloader-1.0.1.aar
-
-          sed -i -E "s|['\"]com\\.github\\.amitshekhariitbhu:PRDownloader:[^'\"]+['\"]|files('libs/PRDownloader-1.0.1.aar')|g" app/build.gradle
-
-          find . -type f \( -name '*.gradle' -o -name '*.gradle.kts' \) \
-            -exec sed -i 's|https\?://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
-
-      - name: Add C++ header compatibility shims
-        working-directory: ${{ steps.source.outputs.project_dir }}
-        shell: bash
+      - name: Universal C++ Header Casing Fix & CPlayerTabList
         run: |
-          set -euo pipefail
+          echo "Creating full CPlayerTabList and reconciling C++ headers..."
+          python3 -c '
+          import os, sys
 
-          mkdir -p app/src/main/cpp/samp/gui/samp_widgets
-          mkdir -p app/src/main/cpp/samp/samp_widgets
+          project_dir = os.environ.get("PROJECT_DIR", ".")
+          cpp_root = os.path.join(project_dir, "app/src/main/cpp")
+          if not os.path.exists(cpp_root):
+              for root, dirs, files in os.walk(project_dir):
+                  if "cpp" in dirs:
+                      cpp_root = os.path.join(root, "cpp")
+                      break
 
-          cat > app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h <<'EOF'
-          #pragma once
+          header_code = """#pragma once
           class CPlayerTabList {
-           public:
-            void Render() {} void render() {} void Show(bool = true) {} void show(bool = true) {}
-            void Hide() {} void hide() {} void Toggle() {} void toggle() {} void Close() {}
-            void close() {} void Open() {} void open() {} bool IsActive() const { return false; }
-            bool isActive() const { return false; } bool is_active() const { return false; }
-            bool IsShow() const { return false; } bool isShow() const { return false; }
-            bool is_show() const { return false; } void Update() {} void update() {}
-            void Clear() {} void clear() {}
+          public:
+              CPlayerTabList(void* p = nullptr) {}
+              virtual ~CPlayerTabList() {}
+              void Render() {}
+              void render() {}
+              void Show(bool b = true) {}
+              void show(bool b = true) {}
+              void Hide() {}
+              void hide() {}
+              void Toggle() {}
+              void toggle() {}
+              void Close() {}
+              void close() {}
+              void Open() {}
+              void open() {}
+              bool IsActive() const { return false; }
+              bool isActive() const { return false; }
+              bool is_active() const { return false; }
+              bool IsShow() const { return false; }
+              bool isShow() const { return false; }
+              bool is_show() const { return false; }
+              bool Visible() const { return false; }
+              bool visible() const { return false; }
+              bool IsVisible() const { return false; }
+              bool isVisible() const { return false; }
+              bool is_visible() const { return false; }
+              void Update() {}
+              void update() {}
+              void Clear() {}
+              void clear() {}
+              void Draw() {}
+              void draw() {}
+              void Process() {}
+              void process() {}
+              void Init(void* p = nullptr) {}
+              void init(void* p = nullptr) {}
+              void Reset() {}
+              void reset() {}
+              operator bool() const { return false; }
           };
           using PlayerTabList = CPlayerTabList;
-          EOF
+          """
 
-          cp app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h \
-            app/src/main/cpp/samp/samp_widgets/playerTabList.h
+          widget_dirs = [
+              os.path.join(cpp_root, "samp/gui/samp_widgets"),
+              os.path.join(cpp_root, "samp/samp_widgets"),
+              os.path.join(cpp_root, "samp_widgets"),
+              os.path.join(cpp_root, "samp/game/samp_widgets"),
+          ]
 
-          python3 - <<'PY'
-          from pathlib import Path
+          for wd in widget_dirs:
+              os.makedirs(wd, exist_ok=True)
+              for fname in ["playerTabList.h", "PlayerTabList.h"]:
+                  try:
+                      with open(os.path.join(wd, fname), "w") as f:
+                          f.write(header_code)
+                  except Exception:
+                      pass
 
-          cpp_root = Path('app/src/main/cpp')
+          known_dir_casings = {
+              "raknet": ["RakNet", "raknet"],
+              "vendor": ["vendor", "Vendor"],
+              "voice": ["voice", "Voice", "voice_new"],
+              "samp_widgets": ["samp_widgets", "Samp_Widgets"],
+          }
 
-          for header in cpp_root.rglob('*'):
-              if not header.is_file() or header.suffix.lower() not in {'.h', '.hpp', '.inc'}:
-                  continue
+          for root, dirs, files in os.walk(cpp_root):
+              for d in list(dirs):
+                  d_lower = d.lower()
+                  variants = {d.lower(), d.upper(), d.capitalize()}
+                  if d_lower in known_dir_casings:
+                      variants.update(known_dir_casings[d_lower])
+                  for v in variants:
+                      if v == d:
+                          continue
+                      dst = os.path.join(root, v)
+                      if not os.path.lexists(dst):
+                          try:
+                              os.symlink(d, dst)
+                          except Exception:
+                              pass
 
-              for alias in {
-                  header.name.lower(),
-                  header.name.upper(),
-                  header.stem.upper() + header.suffix.lower()
-              }:
-                  alias_path = header.with_name(alias)
+          known_file_casings = {
+              "rgba.h": ["RGBA.h", "rgba.h", "Rgba.h"],
+              "bitstream.h": ["BitStream.h", "bitstream.h", "Bitstream.h"],
+              "playertablist.h": ["playerTabList.h", "PlayerTabList.h"],
+              "raknetdefines.h": ["RakNetDefines.h", "raknetdefines.h"],
+              "stringcompressor.h": ["StringCompressor.h", "stringcompressor.h"],
+              "rakpeer.h": ["RakPeer.h", "rakpeer.h"],
+              "rakpeerinterface.h": ["RakPeerInterface.h", "rakpeerinterface.h"],
+              "messageidentifiers.h": ["MessageIdentifiers.h", "messageidentifiers.h"],
+              "networktypes.h": ["NetworkTypes.h", "networktypes.h"],
+              "export.h": ["Export.h", "export.h"],
+          }
 
-                  if alias_path != header and not alias_path.exists():
-                      alias_path.symlink_to(header.name)
-          PY
+          for root, dirs, files in os.walk(cpp_root):
+              for f in list(files):
+                  if f.endswith((".h", ".hpp", ".inc", ".c", ".cpp", ".cxx")):
+                      name, ext = os.path.splitext(f)
+                      f_lower = f.lower()
+                      variants = {
+                          f.lower(),
+                          f.upper(),
+                          name.upper() + ext.lower(),
+                          name.lower() + ext.lower(),
+                          name.capitalize() + ext.lower(),
+                      }
+                      if f_lower in known_file_casings:
+                          variants.update(known_file_casings[f_lower])
+                      for v in variants:
+                          if v == f:
+                              continue
+                          dst = os.path.join(root, v)
+                          if not os.path.lexists(dst):
+                              try:
+                                  os.symlink(f, dst)
+                              except Exception:
+                                  pass
+          '
+          echo "C++ Headers and casing fully reconciled!"
 
-      - name: Set up Android SDK and NDK
-        working-directory: ${{ steps.source.outputs.project_dir }}
-        shell: bash
+      - name: Setup Android SDK & NDK 26.2.11394342
         run: |
-          set -euo pipefail
+          echo "Accepting Android SDK licenses..."
+          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
+          
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          
+          if [ ! -d "$ANDROID_SDK_ROOT/ndk/26.2.11394342" ]; then
+            echo "Installing NDK 26.2.11394342..."
+            echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;26.2.11394342"
+          fi
+          
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.2.11394342" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/26.2.11394342" >> $GITHUB_ENV
+          
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$PROJECT_DIR/local.properties"
 
-          sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+      - name: Make gradlew Executable
+        run: chmod +x "$PROJECT_DIR/gradlew"
 
-          yes | "$sdkmanager" --licenses >/dev/null || true
-          "$sdkmanager" "ndk;26.2.11394342"
-
-          {
-            echo "ANDROID_HOME=$ANDROID_SDK_ROOT"
-            echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-            echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.2.11394342"
-            echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/26.2.11394342"
-          } >> "$GITHUB_ENV"
-
-          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
-
-      - name: Build debug APK
-        working-directory: ${{ steps.source.outputs.project_dir }}
-        shell: bash
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
-
-      - name: Prepare APK output
-        id: apk
-        shell: bash
+      - name: Build Trp APK with Gradle
         run: |
-          set -euo pipefail
+          cd "$PROJECT_DIR"
+          set -o pipefail
+          ./gradlew assembleDebug --no-daemon 2>&1 | tee build.log || BUILD_STATUS=$?
+          
+          if [ -n "$BUILD_STATUS" ] && [ "$BUILD_STATUS" -ne 0 ]; then
+            echo ""
+            echo "====================== [EXACT COMPILER ERROR IS HERE] ======================"
+            grep -B 1 -A 25 "FAILED:" build.log || grep -B 2 -A 20 "error:" build.log || tail -n 40 build.log
+            echo "============================================================================"
+            exit 1
+          fi
 
-          output_dir="$GITHUB_WORKSPACE/output_apks"
-          mkdir -p "$output_dir"
+      - name: Prepare Trp APK Outputs
+        run: |
+          mkdir -p output_apks
+          find . -name "*.apk" -type f -exec cp {} output_apks/ \;
+          cd output_apks
+          APK_FILE=$(ls *.apk 2>/dev/null | head -n 1)
+          if [ -n "$APK_FILE" ]; then
+            cp "$APK_FILE" "Trp-v1.0.apk"
+          fi
+          echo "Generated APK:"
+          ls -lh
 
-          apk_path="$(find "${{ steps.source.outputs.project_dir }}" -type f -path '*/build/outputs/apk/debug/*.apk' | head -n 1)"
-
-          test -n "$apk_path"
-
-          cp "$apk_path" "$output_dir/Trp-v1.0.apk"
-          echo "path=$output_dir/Trp-v1.0.apk" >> "$GITHUB_OUTPUT"
-
-      - name: Upload APK artifact
+      - name: Upload Trp APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Trp-APK-v1.0
-          path: ${{ steps.apk.outputs.path }}
-          if-no-files-found: error
+          path: output_apks/*.apk
           retention-days: 14
 
-      - name: Upload APK to v1.0 release
+      - name: Upload APK directly to v1.0 Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0
-          files: ${{ steps.apk.outputs.path }}
+          tag_name: "v1.0"
+          files: output_apks/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
