@@ -19,7 +19,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # ۲. دانلود سورس ۱۲۵ مگابایتی از Release v1.0 و استخراج آن
+      # ۲. دانلود سورس ۱۲۵ مگابایتی از Release v1.0
       - name: Download Source ZIP from GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -30,9 +30,9 @@ jobs:
           
           echo "Extracting ZIP..."
           unzip -o -q "*.zip"
-          echo "Extraction successful!"
+          echo "Extraction complete!"
 
-      # ۳. پیدا کردن پوشه پروژه اندروید
+      # ۳. پیدا کردن پوشه پروژه
       - name: Locate Android Project Root
         run: |
           GRADLEW_PATH=$(find . -name "gradlew" -type f | head -n 1)
@@ -53,29 +53,41 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
-      # ۵. فعال‌سازی NDK داخلی سرور گیت‌هاب (بدون هیچ افزونه خارجی)
-      - name: Configure Built-in Android NDK
+      # ۵. تایید لایسنس‌ها و هماهنگ‌سازی NDK داخلی (جلوگیری از دانلود ۱.۲ گیگابایت و تایم‌اوت)
+      - name: Optimize Android SDK & NDK Alignment
         run: |
-          echo "Configuring Android NDK..."
-          NDK_PATH=$(ls -d $ANDROID_SDK_ROOT/ndk/* 2>/dev/null | tail -n 1)
-          if [ -n "$NDK_PATH" ]; then
-            echo "Using pre-installed NDK at: $NDK_PATH"
-            echo "ANDROID_NDK_HOME=$NDK_PATH" >> $GITHUB_ENV
-            echo "ANDROID_NDK_ROOT=$NDK_PATH" >> $GITHUB_ENV
+          echo "Accepting Android SDK licenses..."
+          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
+          
+          # پیدا کردن NDK موجود روی سرور
+          RUNNER_NDK=$(ls -d $ANDROID_SDK_ROOT/ndk/* 2>/dev/null | tail -n 1)
+          if [ -n "$RUNNER_NDK" ]; then
+            NDK_VERSION=$(basename "$RUNNER_NDK")
+            echo "Using Runner NDK: $NDK_VERSION"
+            echo "ANDROID_NDK_HOME=$RUNNER_NDK" >> $GITHUB_ENV
+            echo "ANDROID_NDK_ROOT=$RUNNER_NDK" >> $GITHUB_ENV
+            
+            # اصلاح نسخه در build.gradle برای جلوگیری از دانلود ۱.۲ گیگابایت
+            find "$PROJECT_DIR" -name "build.gradle*" -exec sed -i -E "s/ndkVersion\s*=?\s*['\"][^'\"]+['\"]/ndkVersion '$NDK_VERSION'/g" {} +
           fi
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          
+          # افزایش تایم‌اوت شبکه گریدل به ۳ دقیقه
+          mkdir -p "$PROJECT_DIR"
+          echo "org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m" >> "$PROJECT_DIR/gradle.properties"
+          echo "systemProp.org.gradle.internal.http.connectionTimeout=180000" >> "$PROJECT_DIR/gradle.properties"
+          echo "systemProp.org.gradle.internal.http.socketTimeout=180000" >> "$PROJECT_DIR/gradle.properties"
 
-      # ۶. صدور مجوز اجرایی به gradlew
+      # ۶. صدور مجوز اجرایی
       - name: Make gradlew Executable
         run: chmod +x "$PROJECT_DIR/gradlew"
 
-      # ۷. کامپایل پروژه با گریدل
+      # ۷. ساخت APK
       - name: Build Trp APK with Gradle
         run: |
           cd "$PROJECT_DIR"
           ./gradlew assembleDebug --stacktrace
 
-      # ۸. جمع‌آوری فایل‌های خروجی و تغییر نام به Trp-v1.0.apk
+      # ۸. آماده‌سازی فایل Trp-v1.0.apk
       - name: Prepare Trp APK Outputs
         run: |
           mkdir -p output_apks
@@ -85,9 +97,10 @@ jobs:
           if [ -n "$APK_FILE" ]; then
             cp "$APK_FILE" "Trp-v1.0.apk"
           fi
+          echo "Generated APK:"
           ls -lh
 
-      # ۹. آپلود فایل در بخش Artifacts
+      # ۹. آپلود در Artifacts
       - name: Upload Trp APK Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -95,7 +108,7 @@ jobs:
           path: output_apks/*.apk
           retention-days: 14
 
-      # ۱۰. اضافه کردن فایل نهایی Trp-v1.0.apk به Release v1.0
+      # ۱۰. الصاق خودکار به صفحه Release v1.0
       - name: Upload APK directly to v1.0 Release
         uses: softprops/action-gh-release@v2
         with:
