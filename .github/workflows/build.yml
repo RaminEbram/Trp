@@ -55,9 +55,9 @@ jobs:
           curl -sSL "https://jitpack.io/com/github/amitshekhariitbhu/PRDownloader/1.0.2/PRDownloader-1.0.2.aar" -o "$PROJECT_DIR/app/libs/PRDownloader.aar"
           cp -f "$PROJECT_DIR/app/libs/PRDownloader.aar" "$PROJECT_DIR/libs/PRDownloader.aar" 2>/dev/null || true
           
-          echo "Sanitizing and patching Gradle build files..."
+          echo "Sanitizing and patching Gradle build files safely..."
           python3 -c '
-          import os, re
+          import os
           project_dir = os.environ.get("PROJECT_DIR", ".")
           for root, dirs, files in os.walk(project_dir):
               for f in files:
@@ -65,26 +65,28 @@ jobs:
                       p = os.path.join(root, f)
                       try:
                           with open(p, "r", encoding="utf-8") as gf:
-                              content = gf.read()
-                          
-                          # 1. Remove malformed allprojects block inside android {} in app/build.gradle
-                          content = re.sub(r"allprojects\s*\{\s*repositories\s*\{[^}]*\}\s*\}", "", content)
-                          
-                          # 2. Remove dead splunk repository causing build failures
-                          content = re.sub(r"""maven\s*\{\s*url\s*[\x27\x22]https?://mint\.splunk\.com/gradle/?[\x27\x22]\s*\}""", "", content)
-                          
-                          # 3. Replace PRDownloader remote dependency with local AAR file
-                          content = re.sub(r"""[\x27\x22]com\.github\.amitshekhariitbhu:PRDownloader:[^\x27\x22]+[\x27\x22]""", "files(\x27libs/PRDownloader.aar\x27)", content)
-                          
-                          # 4. Support *.aar in libs fileTree
-                          content = content.replace("include: [\x27*.jar\x27]", "include: [\x27*.jar\x27, \x27*.aar\x27]")
-                          content = content.replace("include: [\"*.jar\"]", "include: [\x27*.jar\x27, \x27*.aar\x27]")
-                          
+                              raw = gf.read()
+                          lines = []
+                          for line in raw.splitlines(True):
+                              # 1. Remove malformed allprojects line in app/build.gradle without breaking braces
+                              if "aliyun.com" in line:
+                                  continue
+                              # 2. Remove dead splunk repository
+                              if "mint.splunk.com" in line:
+                                  continue
+                              # 3. Replace PRDownloader remote dependency with local AAR file
+                              if "com.github.amitshekhariitbhu:PRDownloader" in line:
+                                  lines.append("    implementation files(\x27libs/PRDownloader.aar\x27)\n")
+                                  continue
+                              # 4. Support *.aar in libs fileTree
+                              if "fileTree" in line and "*.jar" in line and "*.aar" not in line:
+                                  line = line.replace("\x27*.jar\x27", "\x27*.jar\x27, \x27*.aar\x27").replace("\"*.jar\"", "\x27*.jar\x27, \x27*.aar\x27")
+                              lines.append(line)
                           with open(p, "w", encoding="utf-8") as gf:
-                              gf.write(content)
+                              gf.write("".join(lines))
                       except Exception as e:
                           print("Warning on", p, e)
-          print("All Gradle files successfully sanitized and patched!")
+          print("All Gradle files successfully sanitized and balanced!")
           '
 
       - name: Universal C++ Header Casing Fix & CPlayerTabList
