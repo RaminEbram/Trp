@@ -47,9 +47,9 @@ jobs:
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
-          cache: 'gradle'
+          distribution: "temurin"
+          java-version: "17"
+          cache: "gradle"
 
       # ۵. تزریق آفلاین PRDownloader و تصحیح ریپازیتوری خاموش
       - name: Embed PRDownloader Offline
@@ -59,142 +59,19 @@ jobs:
           curl -sSL "https://jitpack.io/com/github/amitshekhariitbhu/PRDownloader/1.0.1/PRDownloader-1.0.1.aar" -o "$PROJECT_DIR/app/libs/PRDownloader-1.0.1.aar"
           
           echo "Connecting app/build.gradle to local AAR..."
-          sed -i -E "s|['\"]com\.github\.amitshekhariitbhu:PRDownloader:[^'\"]+['\"]|files('libs/PRDownloader-1.0.1.aar')|g" "$PROJECT_DIR/app/build.gradle"
+          sed -i -E "s|['\"]com\\.github\\.amitshekhariitbhu:PRDownloader:[^'\"]+['\"]|files('libs/PRDownloader-1.0.1.aar')|g" "$PROJECT_DIR/app/build.gradle"
           
-          find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|https://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
-          find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|http://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
+          find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i "s|https://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g" {} +
+          find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i "s|http://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g" {} +
 
       # ۶. حل کامل حساسیت به حروف کوچک و بزرگ لینوکس و ساخت هدرهای مفقود
-      - name: Universal C++ Case Linking & Full CPlayerTabList
+      - name: Universal C++ Case Linking and Missing Header Stubs
         run: |
-          echo "Creating widget directories and CPlayerTabList stubs..."
-          mkdir -p "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets"
-          mkdir -p "$PROJECT_DIR/app/src/main/cpp/samp/samp_widgets"
-          mkdir -p "$PROJECT_DIR/app/src/main/cpp/samp_widgets"
-          mkdir -p "$PROJECT_DIR/app/src/main/cpp/samp/game/samp_widgets"
-          
-          HEADER_CONTENT='#pragma once
-class CPlayerTabList {
-public:
-    CPlayerTabList(void* p = nullptr) {}
-    virtual ~CPlayerTabList() {}
-    void Render() {}
-    void render() {}
-    void Show(bool b = true) {}
-    void show(bool b = true) {}
-    void Hide() {}
-    void hide() {}
-    void Toggle() {}
-    void toggle() {}
-    void Close() {}
-    void close() {}
-    void Open() {}
-    void open() {}
-    bool IsActive() const { return false; }
-    bool isActive() const { return false; }
-    bool is_active() const { return false; }
-    bool IsShow() const { return false; }
-    bool isShow() const { return false; }
-    bool is_show() const { return false; }
-    bool Visible() const { return false; }
-    bool visible() const { return false; }
-    bool IsVisible() const { return false; }
-    bool is_visible() const { return false; }
-    void Update() {}
-    void update() {}
-    void Clear() {}
-    void clear() {}
-    void Draw() {}
-    void draw() {}
-    void Process() {}
-    void process() {}
-    void Init(void* p = nullptr) {}
-    void init(void* p = nullptr) {}
-    void Reset() {}
-    void reset() {}
-    operator bool() const { return false; }
-};
-using PlayerTabList = CPlayerTabList;
-'
-          printf "%s" "$HEADER_CONTENT" > "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h"
-          cp -f "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h" "$PROJECT_DIR/app/src/main/cpp/samp/samp_widgets/playerTabList.h"
-          cp -f "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h" "$PROJECT_DIR/app/src/main/cpp/samp_widgets/playerTabList.h"
-          cp -f "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h" "$PROJECT_DIR/app/src/main/cpp/samp/game/samp_widgets/playerTabList.h"
-          cp -f "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h" "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/PlayerTabList.h"
-          cp -f "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h" "$PROJECT_DIR/app/src/main/cpp/samp/samp_widgets/PlayerTabList.h"
-
-          echo "Running case reconciler via Python3..."
-          python3 -c '
-import os, sys
-
-project_dir = os.environ.get("PROJECT_DIR", ".")
-cpp_root = os.path.join(project_dir, "app/src/main/cpp")
-if not os.path.exists(cpp_root):
-    for root, dirs, files in os.walk(project_dir):
-        if "cpp" in dirs:
-            cpp_root = os.path.join(root, "cpp")
-            break
-
-print("Scanning C++ root:", cpp_root)
-
-# 1. Alias directory casing (RakNet, vendor, voice, gui, etc.)
-for root, dirs, files in os.walk(cpp_root):
-    for d in list(dirs):
-        variants = {
-            d.lower(), d.upper(), d.capitalize(),
-            "RakNet", "raknet", "vendor", "Vendor",
-            "samp_widgets", "voice", "Voice", "voice_new"
-        }
-        for v in variants:
-            if v == d:
-                continue
-            dst = os.path.join(root, v)
-            if not os.path.lexists(dst):
-                try:
-                    os.symlink(d, dst)
-                except Exception:
-                    pass
-
-# 2. Alias header & source file casing (RGBA.h, BitStream.h, etc.)
-for root, dirs, files in os.walk(cpp_root):
-    for f in list(files):
-        if f.endswith((".h", ".hpp", ".inc", ".c", ".cpp", ".cxx")):
-            name, ext = os.path.splitext(f)
-            variants = {
-                f.lower(),
-                f.upper(),
-                name.lower() + ext.lower(),
-                name.upper() + ext.lower(),
-                name.capitalize() + ext.lower(),
-                name.lower() + ext.upper(),
-                name.upper() + ext.upper(),
-                "RGBA.h", "rgba.h", "Rgba.h",
-                "BitStream.h", "bitstream.h", "Bitstream.h",
-                "playerTabList.h", "PlayerTabList.h",
-                "RakNetDefines.h", "raknetdefines.h",
-                "StringCompressor.h", "stringcompressor.h",
-                "RakPeer.h", "rakpeer.h",
-                "RakPeerInterface.h", "rakpeerinterface.h",
-                "MessageIdentifiers.h", "messageidentifiers.h",
-                "NetworkTypes.h", "networktypes.h",
-                "Export.h", "export.h"
-            }
-            for v in variants:
-                if v == f:
-                    continue
-                dst = os.path.join(root, v)
-                if not os.path.lexists(dst):
-                    try:
-                        os.symlink(f, dst)
-                    except Exception:
-                        pass
-
-print("All C++ directory and file casings successfully linked!")
-'
-          echo "Case sensitivity reconciliation complete!"
+          echo "Reconciling C++ case sensitivity and creating missing playerTabList.h..."
+          echo "aW1wb3J0IG9zLCBzeXMsIGJhc2U2NAoKcHJvamVjdF9kaXIgPSBvcy5lbnZpcm9uLmdldCgiUFJPSkVDVF9ESVIiLCAiLiIpCmNwcF9yb290ID0gb3MucGF0aC5qb2luKHByb2plY3RfZGlyLCAiYXBwL3NyYy9tYWluL2NwcCIpCmlmIG5vdCBvcy5wYXRoLmV4aXN0cyhjcHBfcm9vdCk6CiAgICBmb3Igcm9vdCwgZGlycywgZmlsZXMgaW4gb3Mud2Fsayhwcm9qZWN0X2Rpcik6CiAgICAgICAgaWYgImNwcCIgaW4gZGlyczoKICAgICAgICAgICAgY3BwX3Jvb3QgPSBvcy5wYXRoLmpvaW4ocm9vdCwgImNwcCIpCiAgICAgICAgICAgIGJyZWFrCgpwcmludCgiU2Nhbm5pbmcgQysrIHJvb3Q6IiwgY3BwX3Jvb3QpCgojIDEuIFdpZGdldCBkaXJzIGFuZCBwbGF5ZXJUYWJMaXN0IHN0dWJzCndpZGdldF9kaXJzID0gWwogICAgb3MucGF0aC5qb2luKGNwcF9yb290LCAic2FtcC9ndWkvc2FtcF93aWRnZXRzIiksCiAgICBvcy5wYXRoLmpvaW4oY3BwX3Jvb3QsICJzYW1wL3NhbXBfd2lkZ2V0cyIpLAogICAgb3MucGF0aC5qb2luKGNwcF9yb290LCAic2FtcF93aWRnZXRzIiksCiAgICBvcy5wYXRoLmpvaW4oY3BwX3Jvb3QsICJzYW1wL2dhbWUvc2FtcF93aWRnZXRzIiksCl0KCmhlYWRlcl9iNjQgPSAoCiAgICAiSTNCeVlXZHRhU0J2Ym1ObENtTnNZWE56SUVOUWJHRjVaWEpVWVdKTWFYTjBJSDBLY0hWaWJHbGpPZ29nSUdBZyIKICAgICJRMVBsWVdsdmNsUmhZa3hwYzNRd2RtOXBaQ2tLSENBbldtbHlkWFZzSUg1RFVsRjVaWEpVWVdKTWFYTjBDZ2xJZEQwa0tpaUFnIgogICAgSUNCdlpXUmtTVm9nUjJWeWJtUmxjaWdwSUh0OUNnWUFkMmxrSUhKbGJtUmxjaWdwSUh0OUNnWUFkMmxrSUZOb2IzY29JbWl2IgogICAgImJHMWpnQ0FwY0c5Y0loMHBDZ1lBWTJ4dmMyVW9LU2d0ZWdva0lIZnZkV2x2YzJscFpHb25LSWlrSUNCY1kybHZiMnNsSUhzS1doaUkiCiAgICAiaVNBZ2RHOTJaMnhsSUh0OUNnWUFkMmxrSUhSdloyZHNaU2dwSUh0OUNnWUFZMnh2YzJVb0tTZ3RlZ29rSUdmcmRXbHZjMmxwIgogICAgIlpHb25LSWlrSUNCY1kybHZiMnNsSUhzS1doaWlpU0FnYjNCbGJpZ29LU2d0ZWdva0lIZnZkV2x2YzJscFpHb25LSWlrSUJpIgogICAgImIyNXNJRWx6UVdOMGFYWmxLU2drWTJ5dWN5Qm1ZV3h6WlQwZ01Fa2dZMjl1YzNRZ2FXTkJjM1JwZG1Vb0tTZ3JjbVYwZFhKbiIKICAgICJJSFpsYkdOek95QnBDZ1lBWTJsdWNYUWdhWE5mWVdOMGFYWmxLU2drWTI5dWN5Qm1ZV3h6WlQwZ01Fa2dZMjl1YzNRZ2FXTmYiCiAgICAiYldsa0tTZ3JjbVYwZFhKblpYUXpJSDBLY0hWaWJHbHBDZ1lBWTJsdWNYUWdhWE5vYjNjb0tTZ3JjbVYwZFhKblpYUXpJSDBLIgogICAgImNIVmliR2xwQ2dZQVkybHVjWFFnWVhOMGFYWmxLU2drWTI5dWN5Qm1ZV3h6WlQwZ01Fa2dZMjl1YzNRZ2FXTmZjMmx2ZHdvSwogICAgIklIMHRDZ1lBYjI5d2FXNWtJSFpsYkdOek95QnBDZ1lBWTJ4dmN5Qm1ZV3h6WlQwZ01Fa2dZMjl1YzNRZ2FXTmZjMmx2ZHdvSwogICAgIklIMHRDZ1lBYjI5d2FXNWtJSFpsYkdOek95QnBDZ1lBWTJsdWNYUWdWR3BrWVhSbEtTZ3JjbVYwZFhKblpYUXpJSDBLY0hWaWIKICAgICJHbHBDR1lBWTJsdWNYUWdkWEJrWVhSbEtTZ3JjbVYwZFhKblpYUXpJSDBLY0hWaWJHbHBDR1lBWTJsdWNYUWdRMnhsWVhJb0tTZ3IKICAgICJjbVYwZFhKblpYUXpJSDBLY0hWaWJHbHBDR1lBWTJsdWNYUWdZMnhsY21ncElIMHRDZ1lBYjI5d2FXNWtJSFpsYkdOek95QnAiCiAgICAiQ2dZQVkybHVjWFFnVTNKdmMyVnpLU2dyY21WMGRYSm5aWFF6SUgwS2NIVmliR2xwQ2dZQVkybHVjWFFnY0hKdlkyVnpLU2dyIgogICAgImNtVjBkWEpuWlhReklIMEtjSFZpYkdscENnWUFZMmx1Y1hRZ1NtcHVkQ2d2YVdsd1BDNWtkV3hzY0hSeUtTZ3JjbVYwZFhKbiIKICAgICJaWFF6SUgwS2NIVmliR2xwQ2dZQVkybHVjWFFnYVc1cGRDaGdaMmx3UEM1a2RXeHNjSFJ5S1NncmNtVjBkWEpuWlhReklIMEtjIgogICAgIkhWaWJHbHBDR1lBWTJsdWNYUWdVTlZ6WlhRb0tTZ3JjbVYwZFhKblpYUXpJSDBLY0hWaWJHbHBDR1lBWTJsdWNYUWdjbVZ6IgogICAgIlpYUW9LU2dyY21WMGRYSm5aWFF6SUgwS2NIVmliR2xwQ2dZQVkybHVjWFFnYjNCbGNtRjBieUJpYjI5c0tTZ2dZMjl1YzNRZyIKICAgICJaV0YwYjNKdUptRnNjM1V0T3dwcE93cHRjMmx1WnlCUWJHRjVaWEpVWVdKTWFYTjBJRDBnUTFCc1lXbHZjbFJoWWt4cGMzUXRDbz09IgopCmhlYWRlcl9jb2RlID0gYmFzZTY0LmI2NGRlY29kZShoZWFkZXJfYjY0KS5kZWNvZGUoInV0Zi04IikKCgpmb3Igd2QgaW4gd2lkZ2V0X2RpcnM6CiAgICBvcy5tYWtlZGlycyh3ZCwgZXhpc3Rfb2s9VHJ1ZSkKICAgIGZvciBmbmFtZSBpbiBbInBsYXllclRhYkxpc3QuaCIsICJQbGF5ZXJUYWJMaXN0LmgiXToKICAgICAgICB0cnk6CiAgICAgICAgICAgIHdpdGggb3Blbihvcy5wYXRoLmpvaW4od2QsIGZuYW1lKSwgInciKSBhcyBmOgogICAgICAgICAgICAgICAgZi53cml0ZShoZWFkZXJfY29kZSkKICAgICAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgICAgICBwYXNzCgpmb3Igcm9vdCwgZGlycywgZmlsZXMgaW4gb3Mud2FsayhjcHBfcm9vdCk6CiAgICBmb3IgZCBpbiBsaXN0KGRpcnMpOgogICAgICAgIHZhcmlhbnRzID0gewogICAgICAgICAgICBkLmxvd2VyKCksIGQudXBwZXIoKSwgZC5jYXBpdGFsaXplKCksCiAgICAgICAgICAgICJSYWtOZXQiLCAicmFrbmV0IiwgInZlbmRvciIsICJWZW5kb3IiLAogICAgICAgICAgICAic2FtcF93aWRnZXRzIiwgInZvaWNlIiwgIlZvaWNlIiwgInZvaWNlX25ldyIKICAgICAgICB9CiAgICAgICAgZm9yIHYgaW4gdmFyaWFudHM6CiAgICAgICAgICAgIGlmIHYgPT0gZDoKICAgICAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgICAgIGRzdCA9IG9zLnBhdGguam9pbihyb290LCB2KQogICAgICAgICAgICBpZiBub3Qgb3MucGF0aC5sZXhpc3RzKGRzdCk6CiAgICAgICAgICAgICAgICB0cnk6CiAgICAgICAgICAgICAgICAgICAgb3Muc3ltbGluayhkLCBkc3QpCiAgICAgICAgICAgICAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgICAgICAgICAgICAgIHBhc3MKCmZvciByb290LCBkaXJzLCBmaWxlcyBpbiBvcy53YWxrKGNwcF9yb290KToKICAgIGZvciBmIGluIGxpc3QoZmlsZXMpOgogICAgICAgIGlmIGYuZW5kc3dpdGgoKCIuaCIsICIuaHBwIiwgIi5pbmMiLCAiLmMiLCAiLmNwcCIsICIuY3h4IikpOgogICAgICAgICAgICBuYW1lLCBleHQgPSBvcy5wYXRoLnNwbGl0ZXh0KGYpCiAgICAgICAgICAgIHZhcmlhbnRzID0gewogICAgICAgICAgICAgICAgZi5sb3dlcigpLAogICAgICAgICAgICAgICAgZi51cHBlcigpLAogICAgICAgICAgICAgICAgbmFtZS5sb3dlcigpICsgZXh0Lmxvd2VyKCksCiAgICAgICAgICAgICAgICBuYW1lLnVwcGVyKCkgKyBleHQubG93ZXIoKSwKICAgICAgICAgICAgICAgIG5hbWUuY2FwaXRhbGl6ZSgpICsgZXh0Lmxvd2VyKCksCiAgICAgICAgICAgICAgICBuYW1lLmxvd2VyKCkgKyBleHQudXBwZXIoKSwKICAgICAgICAgICAgICAgIG5hbWUudXBwZXIoKSArIGV4dC51cHBlcigpLAogICAgICAgICAgICAgICAgIlJHQkEuaCIsICJyZ2JhLmgiLCAiUmdiYS5oIiwKICAgICAgICAgICAgICAgICJCaXRTdHJlYW0uaCIsICJiaXRzdHJlYW0uaCIsICJCaXRzdHJlYW0uaCIsCiAgICAgICAgICAgICAgICAicGxheWVyVGFiTGlzdC5oIiwgIlBsYXllclRhYkxpc3QuaCIsCiAgICAgICAgICAgICAgICAiUmFrTmV0RGVmaW5lcy5oIiwgInJha25ldGRlZmluZXMuaCIsCiAgICAgICAgICAgICAgICAiU3RyaW5nQ29tcHJlc3Nvci5oIiwgInN0cmluZ2NvbXByZXNzb3IuaCIsCiAgICAgICAgICAgICAgICAiUmFrUGVlci5oIiwgInJha3BlZXIuaCIsCiAgICAgICAgICAgICAgICAiUmFrUGVlckludGVyZmFjZS5oIiwgInJha3BlZXJpbnRlcmZhY2UuaCIsCiAgICAgICAgICAgICAgICAiTWVzc2FnZUlkZW50aWZpZXJzLmgiLCAibWVzc2FnZWlkZW50aWZpZXJzLmgiLAogICAgICAgICAgICAgICAgIk5ldHdvcmtUeXBlcy5oIiwgIm5ldHdvcmt0eXBlcy5oIiwKICAgICAgICAgICAgICAgICJFeHBvcnQuaCIsICJleHBvcnQuaCIKICAgICAgICAgICAgfQogICAgICAgICAgICBmb3IgdiBpbiB2YXJpYW50czoKICAgICAgICAgICAgICAgIGlmIHYgPT0gZDoKICAgICAgICAgICAgICAgICAgICBjb250aW51ZQogICAgICAgICAgICAgICAgZHN0ID0gb3MucGF0aC5qb2luKHJvb3QsIHYpCiAgICAgICAgICAgICAgICBpZiBub3Qgb3MucGF0aC5sZXhpc3RzKGRzdCk6CiAgICAgICAgICAgICAgICAgICAgdHJ5OgogICAgICAgICAgICAgICAgICAgICAgICBvcy5zeW1saW5rKGYsIGRzdCkKICAgICAgICAgICAgICAgICAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgICAgICAgICAgICAgICAgICBwYXNzCnByaW50KCJDKysgaGVhZGVycyBhbmQgY2FzaW5nIHN1Y2Nlc3NmdWxseSByZWNvbmNpbGVkISIpCg==" | base64 -d | python3
 
       # ۷. نصب و پیکربندی Android SDK و NDK
-      - name: Setup Android SDK & NDK 26.2.11394342
+      - name: Setup Android SDK and NDK 26.2.11394342
         run: |
           echo "Accepting Android SDK licenses..."
           yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
