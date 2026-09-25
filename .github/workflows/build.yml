@@ -47,15 +47,15 @@ jobs:
           java-version: "17"
           cache: "gradle"
 
-      - name: Embed PRDownloader Offline & Configure JitPack
+      - name: Embed PRDownloader Offline & Fix Gradle Repositories
         run: |
-          echo "Downloading PRDownloader.aar directly into app/libs/ and libs/..."
+          echo "Downloading PRDownloader AAR directly into app/libs/ and libs/..."
           mkdir -p "$PROJECT_DIR/app/libs"
           mkdir -p "$PROJECT_DIR/libs"
-          curl -sSL "https://jitpack.io/com/github/amitshekhariitbhu/PRDownloader/1.0.1/PRDownloader-1.0.1.aar" -o "$PROJECT_DIR/app/libs/PRDownloader-1.0.1.aar"
-          cp -f "$PROJECT_DIR/app/libs/PRDownloader-1.0.1.aar" "$PROJECT_DIR/libs/PRDownloader-1.0.1.aar" 2>/dev/null || true
+          curl -sSL "https://jitpack.io/com/github/amitshekhariitbhu/PRDownloader/1.0.2/PRDownloader-1.0.2.aar" -o "$PROJECT_DIR/app/libs/PRDownloader.aar"
+          cp -f "$PROJECT_DIR/app/libs/PRDownloader.aar" "$PROJECT_DIR/libs/PRDownloader.aar" 2>/dev/null || true
           
-          echo "Patching all gradle files for PRDownloader and JitPack..."
+          echo "Sanitizing and patching Gradle build files..."
           python3 -c '
           import os, re
           project_dir = os.environ.get("PROJECT_DIR", ".")
@@ -66,19 +66,25 @@ jobs:
                       try:
                           with open(p, "r", encoding="utf-8") as gf:
                               content = gf.read()
-                          # 1. Replace PRDownloader with local AAR file
-                          content = re.sub(r"""[\x27\x22]com\.github\.amitshekhariitbhu:PRDownloader:[^\x27\x22]+[\x27\x22]""", "files(\x27libs/PRDownloader-1.0.1.aar\x27)", content)
-                          # 2. Fix dead splunk repo
-                          content = content.replace("https://mint.splunk.com/gradle/", "https://repo1.maven.org/maven2/")
-                          content = content.replace("http://mint.splunk.com/gradle/", "https://repo1.maven.org/maven2/")
-                          # 3. Ensure jitpack is present in repositories
-                          if "repositories {" in content and "jitpack.io" not in content:
-                              content = content.replace("repositories {", "repositories {\n        maven { url \x27https://jitpack.io\x27 }")
+                          
+                          # 1. Remove malformed allprojects block inside android {} in app/build.gradle
+                          content = re.sub(r"allprojects\s*\{\s*repositories\s*\{[^}]*\}\s*\}", "", content)
+                          
+                          # 2. Remove dead splunk repository causing build failures
+                          content = re.sub(r"""maven\s*\{\s*url\s*[\x27\x22]https?://mint\.splunk\.com/gradle/?[\x27\x22]\s*\}""", "", content)
+                          
+                          # 3. Replace PRDownloader remote dependency with local AAR file
+                          content = re.sub(r"""[\x27\x22]com\.github\.amitshekhariitbhu:PRDownloader:[^\x27\x22]+[\x27\x22]""", "files(\x27libs/PRDownloader.aar\x27)", content)
+                          
+                          # 4. Support *.aar in libs fileTree
+                          content = content.replace("include: [\x27*.jar\x27]", "include: [\x27*.jar\x27, \x27*.aar\x27]")
+                          content = content.replace("include: [\"*.jar\"]", "include: [\x27*.jar\x27, \x27*.aar\x27]")
+                          
                           with open(p, "w", encoding="utf-8") as gf:
                               gf.write(content)
-                      except Exception:
-                          pass
-          print("All Gradle files successfully patched!")
+                      except Exception as e:
+                          print("Warning on", p, e)
+          print("All Gradle files successfully sanitized and patched!")
           '
 
       - name: Universal C++ Header Casing Fix & CPlayerTabList
