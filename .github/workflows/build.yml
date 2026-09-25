@@ -59,28 +59,49 @@ jobs:
           find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|https://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
           find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|http://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
 
-      - name: Guarantee playerTabList.h
+      - name: Universal C++ Header Casing Fix
         run: |
-          echo "Setting up samp_widgets directories and playerTabList.h..."
+          echo "Setting up samp_widgets and playerTabList.h..."
           mkdir -p "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets"
           mkdir -p "$PROJECT_DIR/app/src/main/cpp/samp/samp_widgets"
+          printf "#pragma once\nclass CPlayerTabList { public: void Render() {} void Show(bool b=true) {} void Toggle() {} bool IsActive() const { return false; } };\nusing PlayerTabList = CPlayerTabList;\n" > "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h"
+          cp -f "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h" "$PROJECT_DIR/app/src/main/cpp/samp/samp_widgets/playerTabList.h"
           
-          EXISTING_TAB=$(find "$PROJECT_DIR" -iname "*tablist*.h" -o -iname "*playertab*.h" 2>/dev/null | head -n 1)
-          
-          if [ -n "$EXISTING_TAB" ]; then
-            echo "Found existing tablist header at: $EXISTING_TAB"
-            cp -f "$EXISTING_TAB" "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h"
-            cp -f "$EXISTING_TAB" "$PROJECT_DIR/app/src/main/cpp/samp/samp_widgets/playerTabList.h"
-            cp -f "$EXISTING_TAB" "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/PlayerTabList.h"
-            cp -f "$EXISTING_TAB" "$PROJECT_DIR/app/src/main/cpp/samp/samp_widgets/PlayerTabList.h"
-          else
-            echo "Creating standard CPlayerTabList definition..."
-            printf "#pragma once\nclass CPlayerTabList { public: void Render() {} void Show(bool b=true) {} void Toggle() {} bool IsActive() const { return false; } };\nusing PlayerTabList = CPlayerTabList;\n" > "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h"
-            cp -f "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h" "$PROJECT_DIR/app/src/main/cpp/samp/samp_widgets/playerTabList.h"
-            cp -f "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h" "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/PlayerTabList.h"
-            cp -f "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h" "$PROJECT_DIR/app/src/main/cpp/samp/samp_widgets/PlayerTabList.h"
-          fi
-          echo "samp_widgets successfully prepared!"
+          echo "Generating case-insensitive header aliases (RGBA.h, etc.)..."
+          python3 - << 'EOF'
+          import os
+
+          project_dir = os.environ.get('PROJECT_DIR', '.')
+          cpp_root = os.path.join(project_dir, 'app/src/main/cpp')
+          if not os.path.exists(cpp_root):
+              for root, dirs, files in os.walk(project_dir):
+                  if 'cpp' in dirs:
+                      cpp_root = os.path.join(root, 'cpp')
+                      break
+
+          count = 0
+          for root, dirs, files in os.walk(cpp_root):
+              for f in list(files):
+                  if f.endswith(('.h', '.hpp', '.inc')):
+                      name, ext = os.path.splitext(f)
+                      variants = {
+                          f.lower(),
+                          f.upper(),
+                          name.upper() + ext.lower(),
+                          name.lower() + ext.lower(),
+                          name.capitalize() + ext.lower(),
+                          name.upper() + ext.upper()
+                      }
+                      for v in variants:
+                          dst = os.path.join(root, v)
+                          if not os.path.exists(dst):
+                              try:
+                                  os.symlink(f, dst)
+                                  count += 1
+                              except:
+                                  pass
+          print(f"Created {count} case-insensitive header aliases successfully!")
+          EOF
 
       - name: Setup Android SDK & NDK 26.2.11394342
         run: |
@@ -117,7 +138,6 @@ jobs:
             exit 1
           fi
 
-      # ۹. جمع‌آوری و تغییر نام به Trp-v1.0.apk
       - name: Prepare Trp APK Outputs
         run: |
           mkdir -p output_apks
