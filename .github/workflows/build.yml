@@ -52,32 +52,24 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
-      # ۵. دانلود مستقیم فایل پکیج PRDownloader و تزریق به settings.gradle
-      - name: Configure Repositories & Pre-cache PRDownloader
+      # ۵. دانلود فایل AAR و قرار دادن در app/libs (بدون دستکاری مخازن گریدل)
+      - name: Embed PRDownloader Offline
         run: |
-          echo "Pre-caching PRDownloader directly from JitPack..."
-          M2_DIR="$HOME/.m2/repository/com/github/amitshekhariitbhu/PRDownloader/1.0.1"
-          mkdir -p "$M2_DIR"
-          curl -sSL "https://jitpack.io/com/github/amitshekhariitbhu/PRDownloader/1.0.1/PRDownloader-1.0.1.aar" -o "$M2_DIR/PRDownloader-1.0.1.aar" || true
-          curl -sSL "https://jitpack.io/com/github/amitshekhariitbhu/PRDownloader/1.0.1/PRDownloader-1.0.1.pom" -o "$M2_DIR/PRDownloader-1.0.1.pom" || true
+          echo "Downloading PRDownloader.aar directly into app/libs/..."
+          mkdir -p "$PROJECT_DIR/app/libs"
+          curl -sSL "https://jitpack.io/com/github/amitshekhariitbhu/PRDownloader/1.0.1/PRDownloader-1.0.1.aar" -o "$PROJECT_DIR/app/libs/PRDownloader-1.0.1.aar"
           
-          # اصلاح آدرس‌ها
-          find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|https://mint.splunk.com/gradle/|https://jitpack.io/|g' {} +
-          find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|http://mint.splunk.com/gradle/|https://jitpack.io/|g' {} +
+          # اتصال مستقیم به فایل محلی AAR
+          echo "Connecting app/build.gradle to local AAR..."
+          sed -i -E "s|['\"]com\\.github\\.amitshekhariitbhu:PRDownloader:[^'\"]+['\"]|files('libs/PRDownloader-1.0.1.aar')|g" "$PROJECT_DIR/app/build.gradle"
           
-          # افزودن مخزن محلی و JitPack به settings.gradle (محل اصلی مخازن در گریدل ۸)
-          if [ -f "$PROJECT_DIR/settings.gradle" ]; then
-            sed -i "s|repositories {|repositories {\n        mavenLocal()\n        maven { url 'https://jitpack.io' }|g" "$PROJECT_DIR/settings.gradle"
-          fi
-          if [ -f "$PROJECT_DIR/settings.gradle.kts" ]; then
-            sed -i 's|repositories {|repositories {\n        mavenLocal()\n        maven("https://jitpack.io")|g' "$PROJECT_DIR/settings.gradle.kts"
-          fi
+          # جایگزینی سرور قدیمی splunk با سرور استاندارد maven برای جلوگیری از خطای DNS
+          find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|https://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
+          find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|http://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
           
-          # افزودن به build.gradle
-          find "$PROJECT_DIR" -maxdepth 2 -name "build.gradle" -exec sed -i "s|repositories {|repositories {\n        mavenLocal()\n        maven { url 'https://jitpack.io' }|g" {} +
-          echo "Settings and repositories updated successfully!"
+          echo "PRDownloader embedded successfully!"
 
-      # ۶. نصب دقیق نسخه NDK 26.2.11394342
+      # ۶. تنظیم SDK و نسخه NDK 26.2.11394342
       - name: Setup Android SDK & NDK 26.2.11394342
         run: |
           echo "Accepting Android SDK licenses..."
@@ -96,7 +88,7 @@ jobs:
           
           echo "sdk.dir=$ANDROID_SDK_ROOT" > "$PROJECT_DIR/local.properties"
 
-      # ۷. صدور مجوز اجرایی به gradlew
+      # ۷. صدور مجوز اجرایی
       - name: Make gradlew Executable
         run: chmod +x "$PROJECT_DIR/gradlew"
 
@@ -111,7 +103,7 @@ jobs:
           if [ -n "$BUILD_STATUS" ] && [ "$BUILD_STATUS" -ne 0 ]; then
             echo ""
             echo "====================== [EXACT ERROR DETAILS] ======================"
-            grep -B 2 -A 6 "Could not resolve" build.log || grep -B 1 -A 10 "What went wrong:" build.log || tail -n 25 build.log
+            grep -B 2 -A 8 "What went wrong:" build.log || tail -n 25 build.log
             echo "==================================================================="
             exit 1
           fi
@@ -129,7 +121,7 @@ jobs:
           echo "Generated APK:"
           ls -lh
 
-      # ۱۰. آپلود به بخش Artifacts
+      # ۱۰. ذخیره در بخش Artifacts
       - name: Upload Trp APK Artifact
         uses: actions/upload-artifact@v4
         with:
