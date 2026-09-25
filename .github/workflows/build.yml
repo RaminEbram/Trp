@@ -52,8 +52,8 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
-      # ۵. تنظیم SDK و ساخت خودکار local.properties
-      - name: Setup Android SDK Environment
+      # ۵. فعال‌سازی دقیق نسخه درخواستی سورس (NDK 26.2.11394342)
+      - name: Setup Android SDK & NDK 26.2.11394342
         run: |
           echo "Accepting Android SDK licenses..."
           yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
@@ -61,18 +61,25 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           
-          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$PROJECT_DIR/local.properties"
-          NDK_DIR=$(ls -d $ANDROID_SDK_ROOT/ndk/* 2>/dev/null | tail -n 1)
-          if [ -n "$NDK_DIR" ]; then
-            echo "ndk.dir=$NDK_DIR" >> "$PROJECT_DIR/local.properties"
-            echo "ANDROID_NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
+          # بررسی و نصب نسخه دقیق 26.2.11394342
+          if [ ! -d "$ANDROID_SDK_ROOT/ndk/26.2.11394342" ]; then
+            echo "Installing NDK 26.2.11394342..."
+            echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;26.2.11394342"
+          else
+            echo "NDK 26.2.11394342 is already installed!"
           fi
+          
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.2.11394342" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/26.2.11394342" >> $GITHUB_ENV
+          
+          # فقط آدرس sdk را می‌نویسیم تا خود گریدل نسخه 26.2.11394342 را بدون ارور CXX1104 بردارد
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$PROJECT_DIR/local.properties"
 
       # ۶. صدور مجوز اجرایی
       - name: Make gradlew Executable
         run: chmod +x "$PROJECT_DIR/gradlew"
 
-      # ۷. ساخت بدون اسپم لاگ (ارور دقیقاً در ۳ خط اول چاپ می‌شود)
+      # ۷. ساخت APK با گریدل
       - name: Build Trp APK with Gradle
         run: |
           cd "$PROJECT_DIR"
@@ -99,7 +106,7 @@ jobs:
           path: output_apks/*.apk
           retention-days: 14
 
-      # ۱۰. الصاق فایل Trp-v1.0.apk به صفحه Release v1.0
+      # ۱۰. الصاق خودکار به صفحه Release v1.0 شما
       - name: Upload APK directly to v1.0 Release
         uses: softprops/action-gh-release@v2
         with:
