@@ -52,22 +52,18 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
-      # ۵. دانلود فایل AAR و قرار دادن در app/libs (بدون دستکاری مخازن گریدل)
+      # ۵. دانلود فایل AAR و قرار دادن در app/libs
       - name: Embed PRDownloader Offline
         run: |
           echo "Downloading PRDownloader.aar directly into app/libs/..."
           mkdir -p "$PROJECT_DIR/app/libs"
           curl -sSL "https://jitpack.io/com/github/amitshekhariitbhu/PRDownloader/1.0.1/PRDownloader-1.0.1.aar" -o "$PROJECT_DIR/app/libs/PRDownloader-1.0.1.aar"
           
-          # اتصال مستقیم به فایل محلی AAR
           echo "Connecting app/build.gradle to local AAR..."
           sed -i -E "s|['\"]com\\.github\\.amitshekhariitbhu:PRDownloader:[^'\"]+['\"]|files('libs/PRDownloader-1.0.1.aar')|g" "$PROJECT_DIR/app/build.gradle"
           
-          # جایگزینی سرور قدیمی splunk با سرور استاندارد maven برای جلوگیری از خطای DNS
           find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|https://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
           find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|http://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
-          
-          echo "PRDownloader embedded successfully!"
 
       # ۶. تنظیم SDK و نسخه NDK 26.2.11394342
       - name: Setup Android SDK & NDK 26.2.11394342
@@ -88,11 +84,11 @@ jobs:
           
           echo "sdk.dir=$ANDROID_SDK_ROOT" > "$PROJECT_DIR/local.properties"
 
-      # ۷. صدور مجوز اجرایی
+      # ۷. صدور مجوز اجرایی به gradlew
       - name: Make gradlew Executable
         run: chmod +x "$PROJECT_DIR/gradlew"
 
-      # ۸. ساخت APK با گریدل
+      # ۸. ساخت APK و نمایش دقیق خطای کامپایلر C++
       - name: Build Trp APK with Gradle
         run: |
           cd "$PROJECT_DIR"
@@ -102,9 +98,9 @@ jobs:
           
           if [ -n "$BUILD_STATUS" ] && [ "$BUILD_STATUS" -ne 0 ]; then
             echo ""
-            echo "====================== [EXACT ERROR DETAILS] ======================"
-            grep -B 2 -A 8 "What went wrong:" build.log || tail -n 25 build.log
-            echo "==================================================================="
+            echo "====================== [EXACT COMPILER ERROR IS HERE] ======================"
+            grep -B 1 -A 25 "FAILED:" build.log || grep -B 2 -A 20 "error:" build.log || tail -n 40 build.log
+            echo "============================================================================"
             exit 1
           fi
 
