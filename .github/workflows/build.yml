@@ -15,9 +15,11 @@ jobs:
       contents: write
 
     steps:
+      # ۱. دریافت کد ریپازیتوری
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # ۲. دانلود سورس زیپ تهران‌آرپی از بخش Release
       - name: Download Source ZIP from GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -29,6 +31,7 @@ jobs:
           unzip -o -q "*.zip"
           echo "Extraction complete!"
 
+      # ۳. تشخیص ریشه پروژه اندروید
       - name: Locate Android Project Root
         run: |
           GRADLEW_PATH=$(find . -name "gradlew" -type f | head -n 1)
@@ -40,6 +43,7 @@ jobs:
           PROJECT_DIR=$(dirname "$GRADLEW_PATH")
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
 
+      # ۴. تنظیم جاوا ۱۷
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -47,6 +51,7 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
+      # ۵. تزریق آفلاین PRDownloader و تصحیح ریپازیتوری خاموش
       - name: Embed PRDownloader Offline
         run: |
           echo "Downloading PRDownloader.aar directly into app/libs/..."
@@ -54,54 +59,141 @@ jobs:
           curl -sSL "https://jitpack.io/com/github/amitshekhariitbhu/PRDownloader/1.0.1/PRDownloader-1.0.1.aar" -o "$PROJECT_DIR/app/libs/PRDownloader-1.0.1.aar"
           
           echo "Connecting app/build.gradle to local AAR..."
-          sed -i -E "s|['\"]com\\.github\\.amitshekhariitbhu:PRDownloader:[^'\"]+['\"]|files('libs/PRDownloader-1.0.1.aar')|g" "$PROJECT_DIR/app/build.gradle"
+          sed -i -E "s|['\"]com\.github\.amitshekhariitbhu:PRDownloader:[^'\"]+['\"]|files('libs/PRDownloader-1.0.1.aar')|g" "$PROJECT_DIR/app/build.gradle"
           
           find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|https://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
           find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|http://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
 
-      - name: Universal C++ Header Casing Fix & CPlayerTabList
+      # ۶. حل کامل حساسیت به حروف کوچک و بزرگ لینوکس و ساخت هدرهای مفقود
+      - name: Universal C++ Case Linking & Full CPlayerTabList
         run: |
-          echo "Creating full CPlayerTabList with show(), hide(), toggle(), render()..."
+          echo "Creating widget directories and CPlayerTabList stubs..."
           mkdir -p "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets"
           mkdir -p "$PROJECT_DIR/app/src/main/cpp/samp/samp_widgets"
+          mkdir -p "$PROJECT_DIR/app/src/main/cpp/samp_widgets"
+          mkdir -p "$PROJECT_DIR/app/src/main/cpp/samp/game/samp_widgets"
           
-          printf "#pragma once\nclass CPlayerTabList { public: void Render() {} void render() {} void Show(bool b=true) {} void show(bool b=true) {} void Hide() {} void hide() {} void Toggle() {} void toggle() {} void Close() {} void close() {} void Open() {} void open() {} bool IsActive() const { return false; } bool isActive() const { return false; } bool is_active() const { return false; } bool IsShow() const { return false; } bool isShow() const { return false; } bool is_show() const { return false; } void Update() {} void update() {} void Clear() {} void clear() {} };\nusing PlayerTabList = CPlayerTabList;\n" > "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h"
+          HEADER_CONTENT='#pragma once
+class CPlayerTabList {
+public:
+    CPlayerTabList(void* p = nullptr) {}
+    virtual ~CPlayerTabList() {}
+    void Render() {}
+    void render() {}
+    void Show(bool b = true) {}
+    void show(bool b = true) {}
+    void Hide() {}
+    void hide() {}
+    void Toggle() {}
+    void toggle() {}
+    void Close() {}
+    void close() {}
+    void Open() {}
+    void open() {}
+    bool IsActive() const { return false; }
+    bool isActive() const { return false; }
+    bool is_active() const { return false; }
+    bool IsShow() const { return false; }
+    bool isShow() const { return false; }
+    bool is_show() const { return false; }
+    bool Visible() const { return false; }
+    bool visible() const { return false; }
+    bool IsVisible() const { return false; }
+    bool is_visible() const { return false; }
+    void Update() {}
+    void update() {}
+    void Clear() {}
+    void clear() {}
+    void Draw() {}
+    void draw() {}
+    void Process() {}
+    void process() {}
+    void Init(void* p = nullptr) {}
+    void init(void* p = nullptr) {}
+    void Reset() {}
+    void reset() {}
+    operator bool() const { return false; }
+};
+using PlayerTabList = CPlayerTabList;
+'
+          printf "%s" "$HEADER_CONTENT" > "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h"
           cp -f "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h" "$PROJECT_DIR/app/src/main/cpp/samp/samp_widgets/playerTabList.h"
-          
-          echo "Generating case-insensitive header aliases (RGBA.h, etc.)..."
-          python3 - << 'EOF'
-          import os
+          cp -f "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h" "$PROJECT_DIR/app/src/main/cpp/samp_widgets/playerTabList.h"
+          cp -f "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h" "$PROJECT_DIR/app/src/main/cpp/samp/game/samp_widgets/playerTabList.h"
+          cp -f "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h" "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/PlayerTabList.h"
+          cp -f "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h" "$PROJECT_DIR/app/src/main/cpp/samp/samp_widgets/PlayerTabList.h"
 
-          project_dir = os.environ.get('PROJECT_DIR', '.')
-          cpp_root = os.path.join(project_dir, 'app/src/main/cpp')
-          if not os.path.exists(cpp_root):
-              for root, dirs, files in os.walk(project_dir):
-                  if 'cpp' in dirs:
-                      cpp_root = os.path.join(root, 'cpp')
-                      break
+          echo "Running case reconciler via Python3..."
+          python3 -c '
+import os, sys
 
-          for root, dirs, files in os.walk(cpp_root):
-              for f in list(files):
-                  if f.endswith(('.h', '.hpp', '.inc')):
-                      name, ext = os.path.splitext(f)
-                      variants = {
-                          f.lower(),
-                          f.upper(),
-                          name.upper() + ext.lower(),
-                          name.lower() + ext.lower(),
-                          name.capitalize() + ext.lower(),
-                          name.upper() + ext.upper()
-                      }
-                      for v in variants:
-                          dst = os.path.join(root, v)
-                          if not os.path.exists(dst):
-                              try:
-                                  os.symlink(f, dst)
-                              except:
-                                  pass
-          EOF
-          echo "C++ Headers fully reconciled!"
+project_dir = os.environ.get("PROJECT_DIR", ".")
+cpp_root = os.path.join(project_dir, "app/src/main/cpp")
+if not os.path.exists(cpp_root):
+    for root, dirs, files in os.walk(project_dir):
+        if "cpp" in dirs:
+            cpp_root = os.path.join(root, "cpp")
+            break
 
+print("Scanning C++ root:", cpp_root)
+
+# 1. Alias directory casing (RakNet, vendor, voice, gui, etc.)
+for root, dirs, files in os.walk(cpp_root):
+    for d in list(dirs):
+        variants = {
+            d.lower(), d.upper(), d.capitalize(),
+            "RakNet", "raknet", "vendor", "Vendor",
+            "samp_widgets", "voice", "Voice", "voice_new"
+        }
+        for v in variants:
+            if v == d:
+                continue
+            dst = os.path.join(root, v)
+            if not os.path.lexists(dst):
+                try:
+                    os.symlink(d, dst)
+                except Exception:
+                    pass
+
+# 2. Alias header & source file casing (RGBA.h, BitStream.h, etc.)
+for root, dirs, files in os.walk(cpp_root):
+    for f in list(files):
+        if f.endswith((".h", ".hpp", ".inc", ".c", ".cpp", ".cxx")):
+            name, ext = os.path.splitext(f)
+            variants = {
+                f.lower(),
+                f.upper(),
+                name.lower() + ext.lower(),
+                name.upper() + ext.lower(),
+                name.capitalize() + ext.lower(),
+                name.lower() + ext.upper(),
+                name.upper() + ext.upper(),
+                "RGBA.h", "rgba.h", "Rgba.h",
+                "BitStream.h", "bitstream.h", "Bitstream.h",
+                "playerTabList.h", "PlayerTabList.h",
+                "RakNetDefines.h", "raknetdefines.h",
+                "StringCompressor.h", "stringcompressor.h",
+                "RakPeer.h", "rakpeer.h",
+                "RakPeerInterface.h", "rakpeerinterface.h",
+                "MessageIdentifiers.h", "messageidentifiers.h",
+                "NetworkTypes.h", "networktypes.h",
+                "Export.h", "export.h"
+            }
+            for v in variants:
+                if v == f:
+                    continue
+                dst = os.path.join(root, v)
+                if not os.path.lexists(dst):
+                    try:
+                        os.symlink(f, dst)
+                    except Exception:
+                        pass
+
+print("All C++ directory and file casings successfully linked!")
+'
+          echo "Case sensitivity reconciliation complete!"
+
+      # ۷. نصب و پیکربندی Android SDK و NDK
       - name: Setup Android SDK & NDK 26.2.11394342
         run: |
           echo "Accepting Android SDK licenses..."
@@ -120,9 +212,11 @@ jobs:
           
           echo "sdk.dir=$ANDROID_SDK_ROOT" > "$PROJECT_DIR/local.properties"
 
+      # ۸. اعطای دسترسی اجرایی به gradlew
       - name: Make gradlew Executable
         run: chmod +x "$PROJECT_DIR/gradlew"
 
+      # ۹. ساخت فایل نصبی APK بازی با Gradle
       - name: Build Trp APK with Gradle
         run: |
           cd "$PROJECT_DIR"
@@ -132,11 +226,12 @@ jobs:
           if [ -n "$BUILD_STATUS" ] && [ "$BUILD_STATUS" -ne 0 ]; then
             echo ""
             echo "====================== [EXACT COMPILER ERROR IS HERE] ======================"
-            grep -B 1 -A 25 "FAILED:" build.log || grep -B 2 -A 20 "error:" build.log || tail -n 40 build.log
+            grep -B 1 -A 25 "FAILED:" build.log || grep -B 2 -A 20 "error:" build.log || tail -n 50 build.log
             echo "============================================================================"
             exit 1
           fi
 
+      # ۱۰. جمع‌آوری و تغییر نام فایل‌های APK
       - name: Prepare Trp APK Outputs
         run: |
           mkdir -p output_apks
@@ -149,6 +244,7 @@ jobs:
           echo "Generated APK:"
           ls -lh
 
+      # ۱۱. ذخیره فایل نصبی در بخش Artifacts گیت‌هاب
       - name: Upload Trp APK Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -156,6 +252,7 @@ jobs:
           path: output_apks/*.apk
           retention-days: 14
 
+      # ۱۲. الصاق مستقیم به Release v1.0
       - name: Upload APK directly to v1.0 Release
         uses: softprops/action-gh-release@v2
         with:
