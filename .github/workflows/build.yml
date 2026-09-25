@@ -89,11 +89,11 @@ jobs:
           print("All Gradle files successfully sanitized and balanced!")
           '
 
-      - name: Universal C++ Header Casing Fix & CPlayerTabList
+      - name: Reconcile C++ Header Casings (Header-Only, No Redundant Files)
         run: |
-          echo "Creating full CPlayerTabList inheriting from Widget and reconciling C++ headers..."
+          echo "Harmonizing C++ header casings for Linux case-sensitivity..."
           python3 -c '
-          import os, sys
+          import os
 
           project_dir = os.environ.get("PROJECT_DIR", ".")
           cpp_root = os.path.join(project_dir, "app/src/main/cpp")
@@ -103,215 +103,69 @@ jobs:
                       cpp_root = os.path.join(root, "cpp")
                       break
 
-          # Find real widget.h in project
-          widget_h_path = None
+          # 1. Normalize uppercase RakNet paths in include directives
           for root, dirs, files in os.walk(cpp_root):
               for f in files:
-                  if f.lower() == "widget.h":
-                      widget_h_path = os.path.join(root, f)
-                      break
-              if widget_h_path:
-                  break
+                  if f.endswith((".h", ".hpp", ".cpp", ".c")):
+                      p = os.path.join(root, f)
+                      try:
+                          with open(p, "r", encoding="utf-8", errors="ignore") as file:
+                              content = file.read()
+                          if "vendor/RakNet" in content:
+                              content = content.replace("vendor/RakNet", "vendor/raknet")
+                              with open(p, "w", encoding="utf-8") as file:
+                                  file.write(content)
+                      except Exception:
+                          pass
 
-          header_code = """#pragma once
-          #include <utility>
-
-          #if __has_include(<GUI/widget.h>)
-          #include <GUI/widget.h>
-          #elif __has_include("widget.h")
-          #include "widget.h"
-          #elif __has_include(<widget.h>)
-          #include <widget.h>
-          #elif __has_include("../widget.h")
-          #include "../widget.h"
-          #elif __has_include("../../GUI/widget.h")
-          #include "../../GUI/widget.h"
-          #else
-          class Widget { public: virtual ~Widget() {} };
-          #endif
-
-          class CPlayerTabList : public Widget {
-          public:
-              CPlayerTabList() {}
-              template<typename T, typename... Args>
-              CPlayerTabList(T&&, Args&&...) {}
-              virtual ~CPlayerTabList() {}
-
-              template<typename... Args>
-              void setMinSize(Args&&...) {}
-
-              template<typename... Args>
-              void setMaxSize(Args&&...) {}
-
-              template<typename... Args>
-              void setVisible(Args&&...) {}
-
-              template<typename... Args>
-              void setPos(Args&&...) {}
-
-              template<typename... Args>
-              void setPosition(Args&&...) {}
-
-              template<typename... Args>
-              void setSize(Args&&...) {}
-
-              template<typename... Args>
-              void setText(Args&&...) {}
-
-              template<typename... Args>
-              void setTitle(Args&&...) {}
-
-              template<typename... Args>
-              void setPlayer(Args&&...) {}
-
-              template<typename... Args>
-              void addPlayer(Args&&...) {}
-
-              template<typename... Args>
-              void removePlayer(Args&&...) {}
-
-              template<typename... Args>
-              void setScore(Args&&...) {}
-
-              template<typename... Args>
-              void setPing(Args&&...) {}
-
-              template<typename... Args>
-              bool getVisible(Args&&...) const { return false; }
-              template<typename... Args>
-              bool isVisible(Args&&...) const { return false; }
-              template<typename... Args>
-              bool IsVisible(Args&&...) const { return false; }
-
-              virtual void draw() {}
-              virtual void render() {}
-              virtual void update() {}
-              virtual void process() {}
-              virtual void onDraw() {}
-              virtual void onRender() {}
-              virtual void onUpdate() {}
-
-              void Render() {}
-              void Show(bool b = true) {}
-              void show(bool b = true) {}
-              void Hide() {}
-              void hide() {}
-              void Toggle() {}
-              void toggle() {}
-              void Close() {}
-              void close() {}
-              void Open() {}
-              void open() {}
-              bool IsActive() const { return false; }
-              bool isActive() const { return false; }
-              bool is_active() const { return false; }
-              bool IsShow() const { return false; }
-              bool isShow() const { return false; }
-              bool is_show() const { return false; }
-              bool Visible() const { return false; }
-              bool visible() const { return false; }
-              void Update() {}
-              void Clear() {}
-              void clear() {}
-              void Draw() {}
-              void Process() {}
-              template<typename... Args>
-              void Init(Args&&...) {}
-              template<typename... Args>
-              void init(Args&&...) {}
-              void Reset() {}
-              void reset() {}
-              operator bool() const { return false; }
-          };
-          using PlayerTabList = CPlayerTabList;
-          """
-
-          widget_dirs = [
-              os.path.join(cpp_root, "samp/gui/samp_widgets"),
-              os.path.join(cpp_root, "samp/GUI/samp_widgets"),
-              os.path.join(cpp_root, "samp/GUI/SAMP_WIDGETS"),
-              os.path.join(cpp_root, "samp/samp_widgets"),
-              os.path.join(cpp_root, "samp_widgets"),
-              os.path.join(cpp_root, "samp/game/samp_widgets"),
-          ]
-
-          for wd in widget_dirs:
-              os.makedirs(wd, exist_ok=True)
-              if widget_h_path and not os.path.lexists(os.path.join(wd, "widget.h")):
-                  try:
-                      os.symlink(os.path.relpath(widget_h_path, wd), os.path.join(wd, "widget.h"))
-                  except Exception:
-                      pass
-              for fname in ["playerTabList.h", "PlayerTabList.h"]:
-                  try:
-                      with open(os.path.join(wd, fname), "w") as f:
-                          f.write(header_code)
-                  except Exception:
-                      pass
-
-          known_dir_casings = {
-              "raknet": ["RakNet", "raknet"],
-              "vendor": ["vendor", "Vendor"],
-              "voice": ["voice", "Voice", "voice_new"],
-              "samp_widgets": ["samp_widgets", "Samp_Widgets", "SAMP_WIDGETS"],
-              "gui": ["gui", "GUI", "Gui"],
-          }
-
-          for root, dirs, files in os.walk(cpp_root):
-              for d in list(dirs):
-                  d_lower = d.lower()
-                  variants = {d.lower(), d.upper(), d.capitalize()}
-                  if d_lower in known_dir_casings:
-                      variants.update(known_dir_casings[d_lower])
-                  for v in variants:
-                      if v == d:
-                          continue
-                      dst = os.path.join(root, v)
-                      if not os.path.lexists(dst):
-                          try:
-                              os.symlink(d, dst)
-                          except Exception:
-                              pass
-
-          known_file_casings = {
-              "rgba.h": ["RGBA.h", "rgba.h", "Rgba.h"],
-              "bitstream.h": ["BitStream.h", "bitstream.h", "Bitstream.h"],
-              "playertablist.h": ["playerTabList.h", "PlayerTabList.h"],
-              "widget.h": ["Widget.h", "widget.h"],
-              "raknetdefines.h": ["RakNetDefines.h", "raknetdefines.h"],
-              "stringcompressor.h": ["StringCompressor.h", "stringcompressor.h"],
-              "rakpeer.h": ["RakPeer.h", "rakpeer.h"],
-              "rakpeerinterface.h": ["RakPeerInterface.h", "rakpeerinterface.h"],
-              "messageidentifiers.h": ["MessageIdentifiers.h", "messageidentifiers.h"],
-              "networktypes.h": ["NetworkTypes.h", "networktypes.h"],
-              "export.h": ["Export.h", "export.h"],
-          }
-
+          # 2. Safely create header casing symlinks (ONLY for .h, .hpp, .inc - NEVER .cpp or directories!)
+          header_links_created = 0
           for root, dirs, files in os.walk(cpp_root):
               for f in list(files):
-                  if f.endswith((".h", ".hpp", ".inc", ".c", ".cpp", ".cxx")):
+                  if f.endswith((".h", ".hpp", ".inc")):
                       name, ext = os.path.splitext(f)
-                      f_lower = f.lower()
                       variants = {
                           f.lower(),
                           f.upper(),
+                          name.capitalize() + ext.lower(),
                           name.upper() + ext.lower(),
                           name.lower() + ext.lower(),
-                          name.capitalize() + ext.lower(),
                       }
-                      if f_lower in known_file_casings:
-                          variants.update(known_file_casings[f_lower])
+                      if f.lower() == "playertablist.h":
+                          variants.update(["playerTabList.h", "PlayerTabList.h"])
+                      elif f.lower() == "rgba.h":
+                          variants.update(["RGBA.h", "rgba.h", "Rgba.h"])
+                      elif f.lower() == "link.h":
+                          variants.update(["Link.h", "link.h"])
+                      elif f.lower() == "bitstream.h":
+                          variants.update(["BitStream.h", "bitstream.h"])
+                      elif f.lower() == "raknetdefines.h":
+                          variants.update(["RakNetDefines.h", "raknetdefines.h"])
+                      elif f.lower() == "stringcompressor.h":
+                          variants.update(["StringCompressor.h", "stringcompressor.h"])
+                      elif f.lower() == "rakpeer.h":
+                          variants.update(["RakPeer.h", "rakpeer.h"])
+                      elif f.lower() == "rakpeerinterface.h":
+                          variants.update(["RakPeerInterface.h", "rakpeerinterface.h"])
+                      elif f.lower() == "messageidentifiers.h":
+                          variants.update(["MessageIdentifiers.h", "messageidentifiers.h"])
+                      elif f.lower() == "networktypes.h":
+                          variants.update(["NetworkTypes.h", "networktypes.h"])
+                      elif f.lower() == "export.h":
+                          variants.update(["Export.h", "export.h"])
+
                       for v in variants:
-                          if v == f:
-                              continue
-                          dst = os.path.join(root, v)
-                          if not os.path.lexists(dst):
-                              try:
-                                  os.symlink(f, dst)
-                              except Exception:
-                                  pass
+                          if v != f:
+                              dst = os.path.join(root, v)
+                              if not os.path.lexists(dst):
+                                  try:
+                                      os.symlink(f, dst)
+                                      header_links_created += 1
+                                  except Exception:
+                                      pass
+          print(f"Successfully created {header_links_created} header symlinks for Linux case sensitivity!")
           '
-          echo "C++ Headers and casing fully reconciled!"
+          echo "C++ Headers fully reconciled without any duplicate source objects!"
 
       - name: Setup Android SDK & NDK 26.2.11394342
         run: |
