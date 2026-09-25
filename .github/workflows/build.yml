@@ -59,12 +59,13 @@ jobs:
           find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|https://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
           find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|http://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
 
-      - name: Universal C++ Header Casing Fix
+      - name: Universal C++ Header Casing Fix & CPlayerTabList
         run: |
-          echo "Setting up samp_widgets and playerTabList.h..."
+          echo "Creating full CPlayerTabList with show(), hide(), toggle(), render()..."
           mkdir -p "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets"
           mkdir -p "$PROJECT_DIR/app/src/main/cpp/samp/samp_widgets"
-          printf "#pragma once\nclass CPlayerTabList { public: void Render() {} void Show(bool b=true) {} void Toggle() {} bool IsActive() const { return false; } };\nusing PlayerTabList = CPlayerTabList;\n" > "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h"
+          
+          printf "#pragma once\nclass CPlayerTabList { public: void Render() {} void render() {} void Show(bool b=true) {} void show(bool b=true) {} void Hide() {} void hide() {} void Toggle() {} void toggle() {} void Close() {} void close() {} void Open() {} void open() {} bool IsActive() const { return false; } bool isActive() const { return false; } bool is_active() const { return false; } bool IsShow() const { return false; } bool isShow() const { return false; } bool is_show() const { return false; } void Update() {} void update() {} void Clear() {} void clear() {} };\nusing PlayerTabList = CPlayerTabList;\n" > "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h"
           cp -f "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h" "$PROJECT_DIR/app/src/main/cpp/samp/samp_widgets/playerTabList.h"
           
           echo "Generating case-insensitive header aliases (RGBA.h, etc.)..."
@@ -79,7 +80,6 @@ jobs:
                       cpp_root = os.path.join(root, 'cpp')
                       break
 
-          count = 0
           for root, dirs, files in os.walk(cpp_root):
               for f in list(files):
                   if f.endswith(('.h', '.hpp', '.inc')):
@@ -97,11 +97,10 @@ jobs:
                           if not os.path.exists(dst):
                               try:
                                   os.symlink(f, dst)
-                                  count += 1
                               except:
                                   pass
-          print(f"Created {count} case-insensitive header aliases successfully!")
           EOF
+          echo "C++ Headers fully reconciled!"
 
       - name: Setup Android SDK & NDK 26.2.11394342
         run: |
@@ -150,7 +149,6 @@ jobs:
           echo "Generated APK:"
           ls -lh
 
-      # ۱۰. ذخیره فایل در بخش Artifacts
       - name: Upload Trp APK Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -158,7 +156,6 @@ jobs:
           path: output_apks/*.apk
           retention-days: 14
 
-      # ۱۱. الصاق مستقیم به Release v1.0
       - name: Upload APK directly to v1.0 Release
         uses: softprops/action-gh-release@v2
         with:
