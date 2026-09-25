@@ -15,11 +15,9 @@ jobs:
       contents: write
 
     steps:
-      # ۱. دریافت اطلاعات مخزن
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # ۲. دانلود سورس ۱۲۵ مگابایتی از Release v1.0
       - name: Download Source ZIP from GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -27,12 +25,10 @@ jobs:
           echo "Downloading SAMP-Mobile-GTA-2.10_TehranRp_Shell.zip from Release v1.0..."
           gh release download v1.0 --pattern "*.zip" || \
           curl -L -O "https://github.com/${{ github.repository }}/releases/download/v1.0/SAMP-Mobile-GTA-2.10_TehranRp_Shell.zip"
-          
           echo "Extracting ZIP..."
           unzip -o -q "*.zip"
           echo "Extraction complete!"
 
-      # ۳. پیدا کردن پوشه پروژه
       - name: Locate Android Project Root
         run: |
           GRADLEW_PATH=$(find . -name "gradlew" -type f | head -n 1)
@@ -44,7 +40,6 @@ jobs:
           PROJECT_DIR=$(dirname "$GRADLEW_PATH")
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
 
-      # ۴. تنظیم جاوا روی ۱۷
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -52,7 +47,6 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
-      # ۵. دانلود فایل AAR و قرار دادن در app/libs
       - name: Embed PRDownloader Offline
         run: |
           echo "Downloading PRDownloader.aar directly into app/libs/..."
@@ -65,15 +59,13 @@ jobs:
           find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|https://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
           find "$PROJECT_DIR" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -exec sed -i 's|http://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
 
-      # ۶. تأمین قطعی پوشه samp_widgets و فایل playerTabList.h
       - name: Guarantee playerTabList.h
         run: |
           echo "Setting up samp_widgets directories and playerTabList.h..."
           mkdir -p "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets"
           mkdir -p "$PROJECT_DIR/app/src/main/cpp/samp/samp_widgets"
           
-          # جستجو در فایل‌های سورس برای یافتن فایل
-          EXISTING_TAB=$(find "$PROJECT_DIR" -iname "*tablist*.h" -o -iname "*playertab*.h" | head -n 1)
+          EXISTING_TAB=$(find "$PROJECT_DIR" -iname "*tablist*.h" -o -iname "*playertab*.h" 2>/dev/null | head -n 1)
           
           if [ -n "$EXISTING_TAB" ]; then
             echo "Found existing tablist header at: $EXISTING_TAB"
@@ -82,30 +74,14 @@ jobs:
             cp -f "$EXISTING_TAB" "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/PlayerTabList.h"
             cp -f "$EXISTING_TAB" "$PROJECT_DIR/app/src/main/cpp/samp/samp_widgets/PlayerTabList.h"
           else
-            echo "No tablist header in zip archive. Creating complete CPlayerTabList class..."
-            cat << 'EOF' > "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h"
-#pragma once
-
-class CPlayerTabList {
-public:
-    CPlayerTabList() {}
-    virtual ~CPlayerTabList() {}
-    void Render() {}
-    void Show(bool bShow = true) {}
-    void Toggle() {}
-    bool IsActive() const { return false; }
-};
-
-using PlayerTabList = CPlayerTabList;
-EOF
+            echo "Creating standard CPlayerTabList definition..."
+            printf "#pragma once\nclass CPlayerTabList { public: void Render() {} void Show(bool b=true) {} void Toggle() {} bool IsActive() const { return false; } };\nusing PlayerTabList = CPlayerTabList;\n" > "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h"
             cp -f "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h" "$PROJECT_DIR/app/src/main/cpp/samp/samp_widgets/playerTabList.h"
             cp -f "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h" "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/PlayerTabList.h"
             cp -f "$PROJECT_DIR/app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h" "$PROJECT_DIR/app/src/main/cpp/samp/samp_widgets/PlayerTabList.h"
           fi
-          
-          echo "samp_widgets files ready!"
+          echo "samp_widgets successfully prepared!"
 
-      # ۷. تنظیم SDK و نسخه NDK 26.2.11394342
       - name: Setup Android SDK & NDK 26.2.11394342
         run: |
           echo "Accepting Android SDK licenses..."
@@ -124,15 +100,12 @@ EOF
           
           echo "sdk.dir=$ANDROID_SDK_ROOT" > "$PROJECT_DIR/local.properties"
 
-      # ۸. صدور مجوز اجرایی به gradlew
       - name: Make gradlew Executable
         run: chmod +x "$PROJECT_DIR/gradlew"
 
-      # ۹. ساخت APK با گریدل
       - name: Build Trp APK with Gradle
         run: |
           cd "$PROJECT_DIR"
-          
           set -o pipefail
           ./gradlew assembleDebug --no-daemon 2>&1 | tee build.log || BUILD_STATUS=$?
           
@@ -144,7 +117,7 @@ EOF
             exit 1
           fi
 
-      # ۱۰. جمع‌آوری و تغییر نام به Trp-v1.0.apk
+      # ۹. جمع‌آوری و تغییر نام به Trp-v1.0.apk
       - name: Prepare Trp APK Outputs
         run: |
           mkdir -p output_apks
@@ -157,7 +130,7 @@ EOF
           echo "Generated APK:"
           ls -lh
 
-      # ۱۱. ذخیره فایل در بخش Artifacts
+      # ۱۰. ذخیره فایل در بخش Artifacts
       - name: Upload Trp APK Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -165,7 +138,7 @@ EOF
           path: output_apks/*.apk
           retention-days: 14
 
-      # ۱۲. الصاق فایل نهایی به صفحه Release v1.0
+      # ۱۱. الصاق مستقیم به Release v1.0
       - name: Upload APK directly to v1.0 Release
         uses: softprops/action-gh-release@v2
         with:
