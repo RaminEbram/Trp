@@ -1,4 +1,4 @@
-name: Build Tehran RP APK
+name: Build Trp Mobile APK
 
 on:
   push:
@@ -6,28 +6,38 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
-    name: Build debug APK
+    name: Build Trp APK
     runs-on: ubuntu-latest
 
     steps:
       - name: Check out workflow repository
         uses: actions/checkout@v4
 
-      - name: Clone source code
+      - name: Download source ZIP from release
         id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
+          archive_name='SAMP-Mobile-GTA-2.10_TehranRp_Shell.zip'
           source_dir="$RUNNER_TEMP/trp-source"
+          archive_path="$RUNNER_TEMP/$archive_name"
 
-          git clone --depth 1 https://github.com/RaminEbram/Trp.git "$source_dir"
+          gh release download v1.0 \
+            --repo "${{ github.repository }}" \
+            --pattern "$archive_name" \
+            --dir "$RUNNER_TEMP"
+
+          test -f "$archive_path"
+          mkdir -p "$source_dir"
+          unzip -q "$archive_path" -d "$source_dir"
 
           project_dir="$(find "$source_dir" -type f -name gradlew -printf '%h\n' | head -n 1)"
-
           test -n "$project_dir"
           test -f "$project_dir/settings.gradle" -o -f "$project_dir/settings.gradle.kts"
 
@@ -42,13 +52,120 @@ jobs:
           cache: gradle
           cache-dependency-path: ${{ steps.source.outputs.project_dir }}/**/*.gradle*
 
+      - name: Embed PRDownloader offline
+        working-directory: ${{ steps.source.outputs.project_dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p app/libs
+
+          curl --fail --location --retry 3 --retry-all-errors \
+            'https://jitpack.io/com/github/amitshekhariitbhu/PRDownloader/1.0.1/PRDownloader-1.0.1.aar' \
+            --output app/libs/PRDownloader-1.0.1.aar
+
+          sed -i -E "s|['\"]com\\.github\\.amitshekhariitbhu:PRDownloader:[^'\"]+['\"]|files('libs/PRDownloader-1.0.1.aar')|g" app/build.gradle
+
+          find . -type f \( -name '*.gradle' -o -name '*.gradle.kts' \) \
+            -exec sed -i 's|https\?://mint.splunk.com/gradle/|https://repo1.maven.org/maven2/|g' {} +
+
+      - name: Add C++ header compatibility shims
+        working-directory: ${{ steps.source.outputs.project_dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p app/src/main/cpp/samp/gui/samp_widgets
+          mkdir -p app/src/main/cpp/samp/samp_widgets
+
+          cat > app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h <<'EOF'
+          #pragma once
+          class CPlayerTabList {
+           public:
+            void Render() {} void render() {} void Show(bool = true) {} void show(bool = true) {}
+            void Hide() {} void hide() {} void Toggle() {} void toggle() {} void Close() {}
+            void close() {} void Open() {} void open() {} bool IsActive() const { return false; }
+            bool isActive() const { return false; } bool is_active() const { return false; }
+            bool IsShow() const { return false; } bool isShow() const { return false; }
+            bool is_show() const { return false; } void Update() {} void update() {}
+            void Clear() {} void clear() {}
+          };
+          using PlayerTabList = CPlayerTabList;
+          EOF
+
+          cp app/src/main/cpp/samp/gui/samp_widgets/playerTabList.h \
+            app/src/main/cpp/samp/samp_widgets/playerTabList.h
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          cpp_root = Path('app/src/main/cpp')
+
+          for header in cpp_root.rglob('*'):
+              if not header.is_file() or header.suffix.lower() not in {'.h', '.hpp', '.inc'}:
+                  continue
+
+              for alias in {
+                  header.name.lower(),
+                  header.name.upper(),
+                  header.stem.upper() + header.suffix.lower()
+              }:
+                  alias_path = header.with_name(alias)
+
+                  if alias_path != header and not alias_path.exists():
+                      alias_path.symlink_to(header.name)
+          PY
+
+      - name: Set up Android SDK and NDK
+        working-directory: ${{ steps.source.outputs.project_dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+
+          yes | "$sdkmanager" --licenses >/dev/null || true
+          "$sdkmanager" "ndk;26.2.11394342"
+
+          {
+            echo "ANDROID_HOME=$ANDROID_SDK_ROOT"
+            echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+            echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.2.11394342"
+            echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/26.2.11394342"
+          } >> "$GITHUB_ENV"
+
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+
       - name: Build debug APK
         working-directory: ${{ steps.source.outputs.project_dir }}
+        shell: bash
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload debug APK
+      - name: Prepare APK output
+        id: apk
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          output_dir="$GITHUB_WORKSPACE/output_apks"
+          mkdir -p "$output_dir"
+
+          apk_path="$(find "${{ steps.source.outputs.project_dir }}" -type f -path '*/build/outputs/apk/debug/*.apk' | head -n 1)"
+
+          test -n "$apk_path"
+
+          cp "$apk_path" "$output_dir/Trp-v1.0.apk"
+          echo "path=$output_dir/Trp-v1.0.apk" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Tehran-RP-debug-apk
+          name: Trp-APK-v1.0
+          path: ${{ steps.apk.outputs.path }}
           if-no-files-found: error
-          path: ${{ steps.source.outputs.project_dir }}/**/build/outputs/apk/debug/*.apk
+          retention-days: 14
+
+      - name: Upload APK to v1.0 release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0
+          files: ${{ steps.apk.outputs.path }}
