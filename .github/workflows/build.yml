@@ -44,16 +44,16 @@ jobs:
           PROJECT_DIR=$(dirname "$GRADLEW_PATH")
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
 
-      # ۴. تنظیم جاوا JDK 11
-      - name: Set up JDK 11
+      # ۴. تنظیم جاوا روی نسخه ۱۷ (دقیقاً نسخه مورد نیاز Gradle 8.9)
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '11'
+          java-version: '17'
           cache: 'gradle'
 
-      # ۵. تایید لایسنس‌های اندروید و معرفی SDK
-      - name: Setup Android Environment
+      # ۵. تنظیم SDK و شناسایی هوشمند NDK اختصاصی سورس
+      - name: Setup Android SDK and Required NDK
         run: |
           echo "Accepting Android SDK licenses..."
           yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
@@ -61,23 +61,37 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           
-          # ساخت local.properties با مسیرهای سرور
+          # پیدا کردن نسخه دقیق NDK در سورس
+          REQ_NDK=$(grep -rohE "ndkVersion\s*=?\s*['\"][^'\"]+['\"]" "$PROJECT_DIR" 2>/dev/null | head -n 1 | sed -E "s/.*['\"]([^'\"]+)['\"].*/\\1/")
+          echo "Project requested NDK version: $REQ_NDK"
+          
+          if [ -n "$REQ_NDK" ]; then
+            if [ ! -d "$ANDROID_SDK_ROOT/ndk/$REQ_NDK" ]; then
+              echo "Installing requested NDK $REQ_NDK via sdkmanager..."
+              yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;$REQ_NDK" || true
+            fi
+            echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$REQ_NDK" >> $GITHUB_ENV
+          else
+            LATEST_NDK=$(ls -d $ANDROID_SDK_ROOT/ndk/* 2>/dev/null | tail -n 1)
+            echo "Using system NDK: $LATEST_NDK"
+            echo "ANDROID_NDK_HOME=$LATEST_NDK" >> $GITHUB_ENV
+          fi
+          
+          # تنظیم فایل local.properties
           echo "sdk.dir=$ANDROID_SDK_ROOT" > "$PROJECT_DIR/local.properties"
-          NDK_DIR=$(ls -d $ANDROID_SDK_ROOT/ndk/* 2>/dev/null | tail -n 1)
-          if [ -n "$NDK_DIR" ]; then
-            echo "ndk.dir=$NDK_DIR" >> "$PROJECT_DIR/local.properties"
-            echo "ANDROID_NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
+          if [ -n "$ANDROID_NDK_HOME" ]; then
+            echo "ndk.dir=$ANDROID_NDK_HOME" >> "$PROJECT_DIR/local.properties"
           fi
 
       # ۶. صدور مجوز اجرایی
       - name: Make gradlew Executable
         run: chmod +x "$PROJECT_DIR/gradlew"
 
-      # ۷. ساخت مستقیم APK با تنظیمات اصلی سورس
+      # ۷. ساخت APK با گریدل
       - name: Build Trp APK with Gradle
         run: |
           cd "$PROJECT_DIR"
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       # ۸. جمع‌آوری و تغییر نام به Trp-v1.0.apk
       - name: Prepare Trp APK Outputs
@@ -92,7 +106,7 @@ jobs:
           echo "Generated APK:"
           ls -lh
 
-      # ۹. ذخیره فایل در تب Artifacts
+      # ۹. ذخیره فایل نصبی در بخش Artifacts
       - name: Upload Trp APK Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -100,7 +114,7 @@ jobs:
           path: output_apks/*.apk
           retention-days: 14
 
-      # ۱۰. الصاق خودکار فایل Trp-v1.0.apk به Release v1.0
+      # ۱۰. الصاق مستقیم فایل Trp-v1.0.apk به صفحه Release v1.0 شما
       - name: Upload APK directly to v1.0 Release
         uses: softprops/action-gh-release@v2
         with:
